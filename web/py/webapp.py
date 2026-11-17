@@ -3,7 +3,8 @@
 The pages after Run check are answered by web/py/routes.py (the address table) and web/py/pages/ (one file per page).
 
 Called from web/worker.js:
-    run_check(pyret, docs, step, clientsum, stuck)  -> the run's token (Run check itself: core/runcheck.run)
+    run_check(pyret, docs, step, clientsum, stuck, wip, writable)  -> the run's token (Run check: core/runcheck.run),
+                                                    then the work in progress saved into the client folder
     password_candidates(names)                      -> the passwords to try for each PDF (the stuck-PDF guard needs them)
     stuck_message(name, where, seconds)             -> the text shown when the PDF reader gets stuck on a file
 """
@@ -14,7 +15,7 @@ from pathlib import Path
 from core import runcheck
 from core.pdfutil import password_candidates as _candidates
 
-from pages import RUNS
+from pages import RUNS, save_work
 
 WORK = Path("/work")                                 # split brokerage packages (in memory, gone when the tab closes)
 
@@ -23,13 +24,22 @@ def _quiet(msg):
     pass
 
 
-def run_check(pyret: str, docs: list, step=_quiet, clientsum: str = "", stuck: list | None = None) -> str:
-    """pyret = the prior-year return, clientsum = the client summary (PDF / Word) - '' = not picked; docs = the documents
-    to read; stuck = documents the PDF reader got stuck on (left out). All are paths on the in-memory drive."""
-    form = dict(pyret=pyret or "", karbon="", clientsum=clientsum or "", utscreens="", wip="")
-    r = runcheck.run(form, [str(p) for p in docs], work_dir=WORK / "accounts", step=step, stuck_docs=list(stuck or []))
+def run_check(pyret: str, docs: list, step=_quiet, clientsum: str = "", stuck: list | None = None, wip: str = "",
+              writable: list | None = None) -> str:
+    """pyret = the prior-year return, clientsum = the client summary (PDF / Word), wip = the work in progress to continue
+    - '' = not picked; docs = the documents to read; stuck = documents the PDF reader got stuck on (left out).
+    All are paths on the in-memory drive. writable = the places Chrome lets the app write: a folder ("/client/docs/X/",
+    ending in /) or one file (a work in progress picked with Browse…) - the work in progress is saved only there."""
+    places = list(writable or [])
+
+    def can_write(path: str) -> bool:
+        return any(path == w or (w.endswith("/") and path.startswith(w)) for w in places)
+    form = dict(pyret=pyret or "", karbon="", clientsum=clientsum or "", utscreens="", wip=wip or "")
+    r = runcheck.run(form, [str(p) for p in docs], work_dir=WORK / "accounts", step=step, stuck_docs=list(stuck or []),
+                     can_write=can_write)
     RUNS[r["token"]] = r
-    r["wip_path"] = None                             # nothing is saved yet (the work in progress comes with its own step)
+    step("saving the work in progress")
+    save_work(r)
     step("done")
     return r["token"]
 

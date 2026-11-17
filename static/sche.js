@@ -104,11 +104,11 @@
   box.addEventListener('click', e => {
     const a = e.target.closest('[data-act]'); if (!a) return;
     e.preventDefault();
-    if (a.dataset.act === 'dl') { saveNow().then(() => { window.location = a.href; }); return; }
+    if (a.dataset.act === 'dl') { saveNow().then(() => { goTo(a.href); }); return; }
     const j = +a.dataset.j, p = PROPS[j];
     if (a.dataset.act === 'usepy') Object.keys(p.py || {}).forEach(k => { if (!CALC.has(k)) p.cy[k] = p.py[k]; });
     if (a.dataset.act === 'clear') p.cy = {};
-    if (a.dataset.act === 'del') { PROPS.splice(j, 1); saveNow().then(() => location.reload()); return; }
+    if (a.dataset.act === 'del') { PROPS.splice(j, 1); saveNow().then(() => reloadPage()); return; }
     render(); save();
   });
   box.addEventListener('input', e => {
@@ -163,7 +163,7 @@
     PROPS.forEach(p => { p.calculated = has(p); });
     render();
     try { sessionStorage.setItem('scrollY', scrollY); } catch (e) {}
-    saveNow().then(() => location.reload());
+    saveNow().then(() => reloadPage());
   };
   render();
 })();

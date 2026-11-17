@@ -11,9 +11,6 @@ import pytest
 
 import harness as h
 
-# Waits for its page: these tests drove the desktop app's pages (app.py / the K-1 web file, archived as python-final).
-# They come back, unchanged in what they check, when that page is converted - design\conversion_plan.md.
-pytestmark = pytest.mark.skip(reason="waits for the work in progress (Continue / Start fresh) - conversion plan, page 1")
 
 SRC = h.SAMPLES / "Sample"
 W2 = "1.2025 W2_sample.pdf"
@@ -24,17 +21,14 @@ OLD_WIP = h.HERE / "fixtures" / "sample_wip_v1.json"      # a version-1 WIP of t
 
 
 def _run(folder: Path, names: list, wip: dict):
-    a = h._app()
+    """Run check with the work in progress picked (Continue where you left off) -> (the run, its saved work as a dict)."""
+    from core import runcheck
     import core.wip as wip_mod
     wp = folder / "wip.json"
     wp.write_text(json.dumps(wip), encoding="utf-8")
-    c = a.app.test_client()
-    resp = c.post("/run", data=dict(mode="summary", pyret="", utscreens="", karbon="", clientsum="", wip=str(wp),
-                                    docs=json.dumps([dict(path=str(folder / n), on=True) for n in names])))
-    tok = (resp.headers.get("Location") or "").rsplit("/", 1)[-1]
-    assert tok in a.RUNS, resp.get_data(as_text=True)[:500]
-    r = a.RUNS[tok]
-    return r, json.loads(json.dumps(wip_mod.snapshot(r), default=str)), c
+    form = dict(pyret="", karbon="", clientsum="", utscreens="", wip=str(wp))
+    r = h.open_run(runcheck.run(form, [str(folder / n) for n in names], work_dir=folder / "_accounts"))
+    return r, json.loads(json.dumps(wip_mod.snapshot(r), default=str))
 
 
 @pytest.fixture(scope="module")
@@ -63,7 +57,7 @@ def _did(r, name):
 
 def test_old_wip_converted(case):
     folder, old = case
-    r, snap, _ = _run(folder, [W2, W2B, INT, DIV], old)
+    r, snap = _run(folder, [W2, W2B, INT, DIV], old)
     w2, w2b, i5, d6 = (_did(r, n) for n in (W2, W2B, INT, DIV))
     assert snap["version"] == 2 and set(snap["fps"]) >= {w2, w2b, i5, d6}
     assert r["edits"] == {f"w2|{w2}": {"cy": 700000.0}}
@@ -75,7 +69,8 @@ def test_old_wip_converted(case):
     assert r["to_ai"].get(str(folder / DIV)) is True and snap["to_ai"].get(d6) is True
     assert not r.get("docnotes")
     # the corrected amount and the form-tab correction reach the income summary under the new keys
-    inc, _ = h._app()._summaries(r)
+    from core.runcheck import summaries
+    inc, _ = summaries(r)
     rows = {x["id"]: x for s in inc["sections"] for x in s["rows"]}
     assert rows[f"w2|{w2}"]["cy"] == 700000.0 and rows[f"w2|{w2b}"]["cy"] == 66000.0
     case[1].clear()
@@ -85,7 +80,7 @@ def test_old_wip_converted(case):
 def test_renamed_file_keeps_its_work(case):
     folder, wip = case
     (folder / W2).rename(folder / "W-2 renamed.pdf")
-    r, snap, _ = _run(folder, ["W-2 renamed.pdf", W2B, INT, DIV], wip)
+    r, snap = _run(folder, ["W-2 renamed.pdf", W2B, INT, DIV], wip)
     w2 = _did(r, "W-2 renamed.pdf")
     assert r["edits"] == {f"w2|{w2}": {"cy": 700000.0}} and r["marks"].get(f"inc|w2|{w2}")
     assert not r.get("docnotes")
@@ -100,13 +95,13 @@ def test_resaved_file_matched_by_name(case):
     doc.save(folder / "tmp.pdf", garbage=4, deflate=True)       # other bytes, same text
     doc.close()
     (folder / "tmp.pdf").replace(folder / INT)
-    r, snap, c = _run(folder, [W2, W2B, INT, DIV], wip)
+    r, snap = _run(folder, [W2, W2B, INT, DIV], wip)
     new = _did(r, INT)
     assert new != old_did
     assert r["marks"].get(f"v|interest|{new}|main") and r["marks"].get(f"n|v|interest|{new}|main") == "adffg"
     assert "matched by name" in r["docnotes"][new]
     assert new not in r["invstate"]["verified"]                  # verify it again
-    html = c.get(f"/summary/{r['token']}").get_data(as_text=True)
+    html = h.page("GET", f"/summary/{r['token']}")["body"]
     assert "matched by name" in html and "Documents changed since your work was saved" in html
     wip.clear()
     wip.update(snap)
@@ -115,7 +110,7 @@ def test_resaved_file_matched_by_name(case):
 def test_replaced_file_starts_clean(case):
     folder, wip = case
     shutil.copy2(SRC / "3. Anonymus_2025_FORM 1099-R (FIDELITY IRA)_sample.pdf", folder / DIV)   # same name, other document
-    r, snap, c = _run(folder, [W2, W2B, INT, DIV], wip)
+    r, snap = _run(folder, [W2, W2B, INT, DIV], wip)
     new = _did(r, DIV)
     assert "was replaced" in r["docnotes"][new]
     assert not any(new in k for k in r["marks"]) and new not in r["invstate"]["notes"]
@@ -123,5 +118,5 @@ def test_replaced_file_starts_clean(case):
     assert old_did in snap["fps"] and any(old_did in k for k in snap["marks"])     # the old version's work stays in the file
     # ticking the document Verified takes the note away
     st = dict(verified={new: True}, amt={}, notes={}, free=[])
-    c.post(f"/inventory/{r['token']}", json=st)
+    h.page("POST", f"/inventory/{r['token']}", st)
     assert new not in r["docnotes"]

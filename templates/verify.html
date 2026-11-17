@@ -223,7 +223,7 @@ async function runCheck() {
   try {
     await fetch(`/verify/${TOKEN}/run`, {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({path: document.getElementById('cy').value, ut: document.getElementById('ut').value})});
-    location.reload();
+    reloadPage();
   } finally { document.getElementById('go').disabled = false; }
 }
 // ---------- checklist

@@ -28,7 +28,7 @@ if "--port" in sys.argv:                                 # python web\serve.py -
     PORT = int(sys.argv[sys.argv.index("--port") + 1])
 # never in the bundle: the office settings (local_settings.json) and any API key (.env) - they are simply not listed here
 LEAVE_OUT: set = set()
-EXTRA = ["ai_settings.json", "reference/K-1 1065 statement codes.csv", "tests/harness.py"]      # taken when they exist
+EXTRA = ["ai_settings.json", "reference/K-1 1065 statement codes.csv", "tests/harness.py", "tools/parity/scenario.py"]      # taken when they exist
 NOT_YET = ("<!doctype html><meta charset='utf-8'><title>1040 Ultimate</title><link rel='stylesheet' href='/static/style.css'>"
            "<div class='wrap narrow'><h1>1040 Ultimate</h1><div class='banner'>This page isn't in the browser version yet "
            "(it comes with its own step - design/conversion_plan.md). <a href='javascript:history.back()'>← Back</a></div></div>")

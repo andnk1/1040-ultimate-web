@@ -10,8 +10,8 @@ A page is done when it gives the same results as the archive on the sample clien
 
 | Page | Desktop (archive) | Browser app today |
 |---|---|---|
-| 0 · Choose the files | `templates\home.html` + `/run`, Windows file windows | **Built** (`web\index.html`): same fields; Work in progress greyed out |
-| 1 · Summary | `summary.html` + 24 save / download addresses | **Shown, read-only** — the Sample case = its answer key (0 differences) |
+| 0 · Choose the files | `templates\home.html` + `/run`, Windows file windows | **Built** (`web\index.html`): same fields, Work in progress + Continue / Start fresh |
+| 1 · Summary | `summary.html` + 24 save / download addresses | **Saves 1a–1b work** (step 2), the rest read-only |
 | 2 · Verify return | `verify.html` + 4 addresses | not yet |
 | 3 · AI Doc Review | `ai_requests.html` + 4 addresses, API key in `.env` | not yet — waits for the key decision |
 | 4 · AI Return Review, 5 · AI Advisory | placeholder pages | **Built** (step A) — same pages |
@@ -126,6 +126,7 @@ summary ticks; (h) Income and Deduction Summary (Excel); (i) K-1 box Remove.
 1. **A** — page plumbing, client-folder access, stuck-PDF guard, open-document links, the archive check tool; pages 4 · 5.
    **Built 2026-11-17** — both sample clients = the archive (0 differences); details in BUILD_NOTES.md.
 2. **0 + 1a–1b** — work in progress (load / save), the Summary's corrections, ticks, comments, inventory.
+   **Built 2026-11-17** — the saved work and the summaries = the archive after the same edits, and after reopening.
 3. **1c–1i** — form tabs, UT summary, Schedule C / E, Excel, K-1 Remove.
 4. **2** — Verify return.
 5. **6 → 7 → 8** — the K-1 pages.

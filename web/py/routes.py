@@ -8,7 +8,7 @@ one to the worker, and handle() below looks it up in ROUTES and calls the functi
     handle()    one address -> the reply as a plain dict the worker passes to the page (see web/index.html)
 
 Addresses not in the table yet: a page shows "Not in the browser app yet"; a save answers "not saved yet" - those pages are
-converted one at a time (design/conversion_plan.md).
+converted one at a time (design/conversion_plan.md). After a save in AUTOSAVE the work in progress is saved.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import json
 import re
 from urllib.parse import unquote
 
-from pages import NotFound, Reply, data, not_yet
+from pages import NotFound, Reply, data, get_run, not_yet, save_work
 from pages import ai, documents, k1, summary, verify
 
 ROUTES = [
@@ -30,7 +30,23 @@ ROUTES = [
     ("GET",  "/ai-advisory/<token>",                ai.advisory),                 # 5 · AI Advisory
     ("GET",  "/k1v/",                               k1.home),                     # K-1 Verification (not yet)
     ("GET",  "/open",                               documents.open_document),     # a source document in a new tab
+    # the Summary's saves (each followed by saving the work in progress - AUTOSAVE below)
+    ("POST", "/edits/<token>",                      summary.save_edits),          # corrected amounts, Fed. w/h
+    ("POST", "/edits/<token>/confirm",              summary.confirm_edit),        # Re-confirm a correction
+    ("POST", "/added/<token>",                      summary.save_added),          # + lines on the income summary
+    ("POST", "/carryadd/<token>",                   summary.save_carry_added),    # + lines in the carryovers box
+    ("POST", "/comments/<token>",                   summary.save_comments),       # Return Comments, "received?" comments
+    ("POST", "/marks/<token>",                      summary.save_marks),          # ticks and comments on any line
+    ("POST", "/inventory/<token>",                  summary.save_inventory),      # Document inventory: Verified, amounts, notes, + lines
+    ("POST", "/invnote/<token>",                    summary.save_invnote),        # an inventory line's comment typed on the summary
+    ("POST", "/toai/<token>",                       summary.save_toai),           # the AI ticks
+    ("POST", "/wip/<token>/save",                   summary.wip_save),            # Save work in progress (button)
+    ("POST", "/wip/<token>/folder",                 summary.wip_folder),          # Choose a folder… (no folder to save in)
 ]
+
+# after these saves the work in progress is saved (the desktop app did the same after every change)
+AUTOSAVE = {summary.save_edits, summary.confirm_edit, summary.save_added, summary.save_carry_added, summary.save_comments,
+            summary.save_marks, summary.save_inventory, summary.save_invnote, summary.save_toai}
 
 
 def _pattern(address: str) -> re.Pattern:
@@ -66,6 +82,8 @@ def handle(method: str, url: str, body: str = "") -> dict:
             if method == "POST":
                 parts["sent"] = json.loads(body) if body else {}
             reply = fn(**parts)
+            if fn in AUTOSAVE and reply.status == 200:
+                save_work(get_run(parts["token"]))
     except NotFound as e:
         reply = (Reply("json", {"error": str(e)}, status=404) if method == "POST"
                  else not_yet("", "", "Can't show this", str(e), lead=""))

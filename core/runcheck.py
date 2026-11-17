@@ -4,8 +4,9 @@ summary ...). The browser app (web/py/webapp.py) and the tests (tests/harness.py
 Moved here from the desktop app's app.py unchanged (2026-11-16; the desktop app is archived as the git tag python-final in
 the old repository). `step` is where progress lines go (the progress list under Run check in the browser).
 
-    run(form, docs, ...)       Run check as the first page does it: the checks on the picked files, the reading, the K-1
-                               section linked, the UT input screens loaded -> the run (a dict)
+    run(form, docs, ...)       Run check as the first page does it: the saved work opened, the checks on the picked files,
+                               the reading, the K-1 section linked, the UT input screens loaded, the saved work put back
+                               -> the run (a dict). Nothing is written: the page saves the work afterwards.
     check_form(form)           the first page's checks (is the prior-year return a 1040? ...); raises Problem
     read(form, docs_on, ...)   the whole reading: prior-year return, documents, K-1 routing, Karbon, client summary,
                                amounts -> the run (a dict); raises Problem(text for the preparer)
@@ -23,6 +24,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from . import docid
 from . import formview as fv_mod
 from . import wip as wip_mod
 from .carryovers import read_carryovers
@@ -38,6 +40,7 @@ from .pdfutil import split_accounts
 from .people import read_people
 from .py_return import match_expected, read_prior_return, read_py_income, read_schedule_c, read_schedule_e
 from .utscreens import looks_like_ut_screens, read_ut_screens
+from .verify import read_cy_return
 
 
 class Problem(Exception):
@@ -52,20 +55,93 @@ EMPTY_PY = dict(file="", pages=0, year=None, software="", summary=None, filing_s
                 expected=[], carryovers=[], warnings=[])
 
 
-def run(form: dict, docs: list, *, work_dir, step=_quiet, k1w=None, stuck_docs=()) -> dict:
+def run(form: dict, docs: list, *, work_dir, step=_quiet, stuck_docs=(), can_write=None) -> dict:
     """Run check, start to end, as the first page does it. form = {pyret, karbon, clientsum, utscreens, wip}: paths of the
     picked files ('' = not picked); docs = the documents to read. The run gets a new "token" (its name while the app is
     open). stuck_docs = documents the PDF reader got stuck on before Run check (left out, listed as "Not read").
+    can_write(path) = whether the work in progress may be saved at that path (in the browser: only inside a folder Chrome
+    let the app edit); not given = anywhere.
     Raises Problem when a picked file is the wrong kind - the text is shown to the preparer."""
+    form = dict(form)
+    wip_data, doc_list, moved = open_work(form, docs)
+    docs_on = [d["path"] for d in doc_list if d.get("on", True) and d["path"] not in set(stuck_docs)]
     check_form(form)
-    docs = [p for p in docs if p not in set(stuck_docs)]
-    r = read(form, docs, work_dir=work_dir, make_k1_run=k1runs.make_run, k1w=k1w, stuck_docs=list(stuck_docs), step=step)
+    k1w = wip_mod.load_k1(form["wip"]) if wip_data else None       # the K-1 section's own work (K-1 work file next to the WIP)
+    r = read(form, docs_on, work_dir=work_dir, doc_list=doc_list, make_k1_run=k1runs.make_run, k1w=k1w, moved=moved,
+             stuck_docs=list(stuck_docs), step=step)
     r["token"] = uuid.uuid4().hex[:12]
     if r.get("k1v_token"):
         k1runs.set_owner(r["k1v_token"], r["token"])       # the K-1 run belongs to this run from the start
     if form.get("utscreens"):
         load_ut(r, form["utscreens"])
+    put_back_work(r, wip_data, form, can_write or (lambda path: True))
     return r
+
+
+# ---------------------------------------------------------------- the work in progress (moved from the desktop's app.py)
+def open_work(form: dict, docs: list) -> tuple:
+    """Before reading: the saved work (form["wip"], a '1040 Ultimate WIP ... .json') -> (its content or None, the document
+    list, notes on files that moved). The files saved with the work fill the fields not picked now; a file that isn't where
+    it was is looked for by name under the work file's folder. form is changed in place."""
+    doc_list = [dict(path=p, on=True) for p in docs]
+    if not form.get("wip"):
+        return None, doc_list, []
+    if not Path(form["wip"]).is_file():
+        raise Problem("The work-in-progress file wasn't found.")
+    try:
+        wip_data = wip_mod.load(form["wip"])
+    except (OSError, ValueError) as e:
+        raise Problem(f"Couldn't read the work-in-progress file: {e}") from e
+    wf = wip_data.get("form") or {}
+    if form["pyret"] and wf.get("pyret") and wip_mod.file_name(form["pyret"]).lower() != wip_mod.file_name(wf["pyret"]).lower():
+        raise Problem(f"This work in progress belongs to {wip_data.get('client') or 'another client'} "
+                      f"(prior-year return {wip_mod.file_name(wf['pyret'])}) — you picked {wip_mod.file_name(form['pyret'])}. "
+                      "Clear one of them and run again.")
+    folder, moved = str(Path(form["wip"]).parent), []
+    for k in ("pyret", "karbon", "clientsum", "utscreens"):  # the paths saved with the work (unless picked now)
+        form[k] = form.get(k) or wf.get(k, "")
+        if form[k] and not Path(form[k]).is_file():
+            (new,), notes = wip_mod.relink([form[k]], folder)
+            if notes:
+                form[k] = new
+                moved += notes
+    if form["karbon"] and not Path(form["karbon"]).is_file():
+        form["karbon"] = ""                               # saved with an older work in progress and moved: found in the documents instead
+    if not doc_list:                                      # no documents picked now: the ones saved with the work
+        doc_list = [d for d in (wip_data.get("docs") or []) if d.get("path")]
+        fixed, notes = wip_mod.relink([d["path"] for d in doc_list], folder)
+        for d, p in zip(doc_list, fixed):
+            d["path"] = p
+        moved += notes
+    return wip_data, doc_list, moved
+
+
+def put_back_work(r: dict, wip_data: dict | None, form: dict, can_write) -> None:
+    """After reading: the saved work on top of the fresh read (keyed by the documents' fingerprints, older files converted
+    once), and where the work will be saved (r["wip_path"]; None = nowhere yet - the Summary offers "Choose a folder…")."""
+    if wip_data:
+        wip_data = docid.upgrade(r, wip_data, summaries)  # keys on this run's document ids (older files converted once)
+        for k in wip_mod.KEYS:
+            if wip_data.get(k) is not None:
+                r[k] = wip_data[k]
+        folder = str(Path(form["wip"]).parent)
+        for key in ("cy_path", "ut_path"):               # the current-year return / UT print saved with the work (moved: by name)
+            if wip_data.get(key) and not Path(wip_data[key]).is_file():
+                (wip_data[key],), _ = wip_mod.relink([wip_data[key]], folder)
+        if wip_data.get("cy_path") and Path(wip_data["cy_path"]).is_file():
+            r["cy_path"] = wip_data["cy_path"]
+            try:
+                r["cy_ret"] = read_cy_return(wip_data["cy_path"])
+            except Exception:  # noqa: BLE001
+                r["cy_ret"] = None
+        if wip_data.get("ut_path") and not form["utscreens"] and Path(wip_data["ut_path"]).is_file():
+            load_ut(r, wip_data["ut_path"])
+        r["wip_path"] = form["wip"] if can_write(form["wip"]) else None
+        r["wip_loaded"] = wip_data.get("saved", "")
+    else:
+        folder = wip_mod.default_folder(form)
+        path = wip_mod.new_path(folder, r) if folder else None
+        r["wip_path"] = path if path and can_write(path) else None
 
 
 def check_form(form: dict) -> None:

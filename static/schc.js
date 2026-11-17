@@ -163,7 +163,7 @@ async function addPL() {
   if (!b.py && !b.name && pl.company) b.name = pl.company;
   render(); saveNow();
 }
-function dl(a) { saveNow(); setTimeout(() => { window.location = a.href; }, 350); return false; }
+function dl(a) { saveNow(); setTimeout(() => { goTo(a.href); }, 350); return false; }
 // line 31 of each business -> per document on the income summary; a corrected amount typed there stays (and is flagged
 // when line 31 changed since). The page is drawn again so both columns come from the program.
 function calculateSchC() {
@@ -173,7 +173,7 @@ function calculateSchC() {
   render();
   clearTimeout(t);
   try { sessionStorage.setItem('scrollY', scrollY); } catch (e) {}
-  post().then(() => location.reload());
+  post().then(() => reloadPage());
 }
 
 let t;

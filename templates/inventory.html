@@ -76,7 +76,7 @@
   }
   function save(reload) {
     return fetch('/inventory/{{ token }}', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(state())})
-      .then(() => { if (!reload) return; try { sessionStorage.setItem('scrollY', scrollY); } catch (e) {} location.reload(); });
+      .then(() => { if (!reload) return; try { sessionStorage.setItem('scrollY', scrollY); } catch (e) {} reloadPage(); });
   }
   T.addEventListener('change', e => {
     const tr = e.target.closest('tr.invrow'); if (!tr) return;

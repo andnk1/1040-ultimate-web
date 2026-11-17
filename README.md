@@ -4,8 +4,8 @@ Internal return-review tool. Runs in the browser (Chrome / Edge): the client's d
 never uploaded anywhere. Contains client data: internal use only. Federal only.
 
 The desktop version (local Python server, `run.bat`) is retired (2026-11-17); its last code is the git tag `python-final` in the
-old repository `1040_ultimate`. **Status:** the first page and the Summary page (read-only) work; the other screens described
-below are converted one at a time (`design\conversion_plan.md`). The screens are described as the desktop app had them — that
+old repository `1040_ultimate`. **Status:** the first page, the work in progress and the Summary's corrections, ticks, comments
+and Document inventory work; the other screens described below are converted one at a time (`design\conversion_plan.md`). The screens are described as the desktop app had them — that
 is what each converted page must match.
 
 ## Start (Windows)
@@ -356,4 +356,4 @@ documents over 10 pages send only their summary pages to the AI; a tax year othe
 | `templates/`, `static/` | The pages and their scripts / CSS (same look as the K-1 tools; `design/DESIGN_RULES.md`) |
 | `tests/` | The tests and the answer-key harness (`samples/` local only) |
 | `design/` | Specs: the brief (`web_version.md`), the conversion plan, the UT export format, screen specs |
-"# 1040-ultimate-web" 
+ 

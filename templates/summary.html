@@ -81,7 +81,7 @@
   </details>
   <script>
   function k1Remove() {
-    fetch('/k1/{{ token }}/remove', {method: 'POST'}).then(() => { try { sessionStorage.setItem('scrollY', scrollY); } catch (e) {} location.reload(); });
+    fetch('/k1/{{ token }}/remove', {method: 'POST'}).then(() => { try { sessionStorage.setItem('scrollY', scrollY); } catch (e) {} reloadPage(); });
   }
   </script>
 
@@ -381,7 +381,7 @@ async function wipFolder() {
   if (j.saved) { line.remove(); const b = document.getElementById('probBox'); if (b && !b.textContent.trim()) b.remove(); }   // saved now: nothing wrong
   else if (j.error) line.textContent = j.error;
 }
-function dlExcel(a) { recalc(true); setTimeout(() => { window.location = a.href; }, 300); return false; }
+function dlExcel(a) { recalc(true); setTimeout(() => { goTo(a.href); }, 300); return false; }
 const num = v => { if (v === undefined || v === null || v === '') return 0; const n = parseFloat(String(v).replace(/[$,\s]/g, '').replace(/^\((.*)\)$/, '-$1')); return isNaN(n) ? 0 : n; };
 
 // ---------- income summary: typed-over amounts + Recalculate
@@ -514,7 +514,8 @@ recalc(false);
   const KEY = 'openBoxes:' + location.pathname;
   const boxes = [...document.querySelectorAll('details.card[id]')];
   try {
-    const nav = (performance.getEntriesByType('navigation')[0] || {}).type;
+    // (the browser app redraws a page after a save: window.u1040Reloaded - web/index.html)
+    const nav = window.u1040Reloaded ? 'reload' : (performance.getEntriesByType('navigation')[0] || {}).type;
     const back = nav === 'back_forward';
     const was = nav === 'reload' || back ? JSON.parse(sessionStorage.getItem(KEY) || '[]') : [];
     boxes.forEach(b => { if (was.includes(b.id)) b.open = true; });

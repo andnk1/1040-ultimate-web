@@ -42,9 +42,11 @@
         <div class="pick"><input id="clientsum" readonly placeholder="">
           <button type="button" class="light small pickbtn" data-pick="clientsum">Browse…</button>
           <button type="button" class="light small hidden" data-clear="clientsum" title="Clear">✕</button></div></div>
+      <div id="wipNote" class="banner hidden"></div>
       <div class="field"><label>Work in progress (.json) — optional</label>
-        <div class="pick"><input id="wip" readonly disabled placeholder="Comes with the next step — nothing is saved yet">
-          <button type="button" class="light small" disabled>Browse…</button></div></div>
+        <div class="pick"><input id="wip" readonly placeholder="">
+          <button type="button" class="light small pickbtn" data-pick="wip">Browse…</button>
+          <button type="button" class="light small hidden" data-clear="wip" title="Clear">✕</button></div></div>
       <div class="field"><label>Documents — optional</label>
         <div class="bar" style="margin:0 0 8px">
           <button type="button" class="pickbtn" id="addFiles">Add documents…</button>
@@ -59,6 +61,7 @@
       <div id="keyResult" class="hidden"></div>
       <input type="file" id="inPyret" accept=".pdf" class="hidden">
       <input type="file" id="inClientsum" accept=".pdf,.docx" class="hidden">
+      <input type="file" id="inWip" accept=".json" class="hidden">
       <input type="file" id="inFiles" multiple class="hidden">
       <input type="file" id="inFolder" webkitdirectory multiple class="hidden">
     </div>
@@ -70,7 +73,7 @@
 <div id="result" class="hidden">
   <div id="topbar" class="banner">
     <button type="button" class="light small" id="newRun">← New run</button>
-    <span class="note">Pages still being converted are read-only: changes are not saved yet.</span>
+    <span class="note">Your work on the Summary is saved in the client folder. Pages still being converted are read-only.</span>
     <span class="note" id="took"></span>
   </div>
   <iframe id="page" title="Summary"></iframe>
@@ -82,7 +85,9 @@ const $ = id => document.getElementById(id);
 const show = (el, on = true) => el.classList.toggle("hidden", !on);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 // what was picked. A document: {name, folder ("Client X/sub/" or "" for a single file), file, on}
-const PICK = { pyret: null, clientsum: null };      // File or null
+const PICK = { pyret: null, clientsum: null, wip: null };   // File or null (wip: a work in progress, see WIP_PATH)
+let WIP_PATH = "";                                   // where the picked work in progress sits on the in-memory drive
+let WIPS = [];                                       // work-in-progress files found in the added folders: {path, file}
 let DOCS = [];
 let CASE = null;                                     // {folder, files: [{rel, file}]} - a test case (answer key / archive results)
 let busy = false;
@@ -118,7 +123,7 @@ worker.onmessage = e => {
   else if (m.type === "done") done(m);
   else if (m.type === "keys") keysDone(m);
   else if (m.type === "reply") { const answer = waiting.get(m.id); waiting.delete(m.id); if (answer) answer(m); }
-  else if (m.type === "save") saveFile(m.name, m.bytes);
+  else if (m.type === "save") saveFile(m.name, m.bytes);    // m.name = the file's place on the in-memory drive
 };
 
 // ---------------------------------------------------------------- the two single files (prior-year return, summary)
@@ -126,12 +131,42 @@ function setPick(id, file) {
   PICK[id] = file || null;
   $(id).value = file ? file.name : "";
   show(document.querySelector(`[data-clear="${id}"]`), !!file);
+  if (id === "wip") { WIP_PATH = file ? WIP_PATH : ""; show($("wipNote"), false); }
 }
 for (const id of ["pyret", "clientsum"]) {
   const input = $(id === "pyret" ? "inPyret" : "inClientsum");
   document.querySelector(`[data-pick="${id}"]`).onclick = () => { input.value = ""; input.click(); };
   input.onchange = () => { if (input.files[0]) setPick(id, input.files[0]); };
   document.querySelector(`[data-clear="${id}"]`).onclick = () => setPick(id, null);
+}
+// Work in progress → Browse…: Chrome's file window with write access, so the work goes on being saved into the same file
+document.querySelector('[data-pick="wip"]').onclick = async () => {
+  if (!window.showOpenFilePicker) { $("inWip").value = ""; return $("inWip").click(); }
+  let fh;
+  try { [fh] = await window.showOpenFilePicker({ types: [{ description: "Work in progress", accept: { "application/json": [".json"] } }] }); }
+  catch (e) { return; }                                // closed without choosing
+  const path = "/client/picked/wip/" + fh.name;
+  if (await fh.requestPermission({ mode: "readwrite" }) === "granted") addPlace(path, fh);
+  WIP_PATH = path;
+  setPick("wip", await fh.getFile());
+  WIP_PATH = path;
+};
+$("inWip").onchange = () => { const f = $("inWip").files[0]; if (f) { WIP_PATH = "/client/picked/wip/" + f.name; setPick("wip", f); } };
+document.querySelector('[data-clear="wip"]').onclick = () => setPick("wip", null);
+// a folder added with a work in progress in it: ask first - Continue where you left off / Start fresh (as on the desktop)
+const WIP_NAME = /(^|\/)1040 Ultimate (K-1 )?WIP[^/]*\.json$/i;
+async function offerWork() {
+  const mine = WIPS.filter(w => !/K-1 WIP/i.test(w.path)).sort((a, b) => b.file.lastModified - a.file.lastModified)[0];
+  if (!mine || PICK.wip) return;
+  let saved = "?";
+  try { saved = JSON.parse(await mine.file.text()).saved || "?"; } catch (e) { /* not readable: still offered */ }
+  const n = $("wipNote");
+  n.innerHTML = `Work in progress found: <b>${esc(mine.file.name)}</b> (saved ${esc(saved)}).
+    <button type="button" id="wipGo">Continue where you left off</button>
+    <button type="button" class="light" id="wipFresh">Start fresh</button>`;
+  show(n);
+  $("wipGo").onclick = () => { WIP_PATH = mine.path; setPick("wip", mine.file); WIP_PATH = mine.path; $("go").click(); };
+  $("wipFresh").onclick = () => show(n, false);
 }
 
 // ---------------------------------------------------------------- the documents: single files and / or folders
@@ -148,6 +183,9 @@ function addFolder(top, files) {    // files: [{rel: "sub/name.pdf", file}]
   if (key || ref) CASE = { folder: top, files };
   show($("keys"), key);
   show($("archive"), ref);
+  for (const f of files.filter(f => WIP_NAME.test(f.rel)))          // saved work: kept apart (it isn't a document)
+    if (!WIPS.some(w => w.path === "/client/docs/" + top + "/" + f.rel)) WIPS.push({ path: "/client/docs/" + top + "/" + f.rel, file: f.file });
+  offerWork();
   addDocs(files.map(f => {
     const name = f.rel.split("/").pop();
     return { name, folder: top + "/" + f.rel.slice(0, f.rel.length - name.length), file: f.file };
@@ -165,7 +203,7 @@ $("addFolder").onclick = async () => {
   if (!window.showDirectoryPicker) { $("inFolder").value = ""; return $("inFolder").click(); }
   let dir;
   try { dir = await window.showDirectoryPicker({ mode: "readwrite" }); } catch (e) { return; }  // closed without choosing
-  CLIENT_DIR = CLIENT_DIR || dir;                      // the first folder added = the client folder (where the app keeps files)
+  addPlace("/client/docs/" + dir.name + "/", dir);    // the app may write here (the work in progress)
   const out = [];
   await walk(dir, "", out);
   addFolder(dir.name, out);
@@ -191,7 +229,7 @@ function count() {
 }
 $("docTable").onchange = e => { if (e.target.classList.contains("use")) { DOCS[+e.target.dataset.i].on = e.target.checked; count(); } };
 $("docTable").onclick = e => { if (e.target.classList.contains("del")) { DOCS.splice(+e.target.dataset.i, 1); draw(); } };
-window.u1040Test = { addFolder, addDocs, setPick };      // for automated checks only
+window.u1040Test = { addFolder, addDocs, setPick, setWip: (file, path) => { WIP_PATH = path; setPick("wip", file); WIP_PATH = path; } };
 draw();
 
 // ---------------------------------------------------------------- talking to the worker (web/worker.js)
@@ -204,27 +242,37 @@ function ask(msg) {
 }
 const callPy = (fn, ...args) => ask({ type: "call", fn, args }).then(r => r.body);
 
-// ---------------------------------------------------------------- the client folder (read + write, design/conversion_plan.md A2)
-// "Add a folder…" asks Chrome for read AND write access, so the app can keep files in the client's own folder (the work in
-// progress, later). Chrome asks "Allow this site to edit files?" once per session. Without a folder (single files only, or a
-// browser without folder access) a file the app keeps is downloaded instead.
-let CLIENT_DIR = null;                                 // the folder picked with "Add a folder…" (FileSystemDirectoryHandle)
-async function saveFile(name, bytes) {
-  if (CLIENT_DIR) {
-    try {
-      const opts = { mode: "readwrite" };
-      if (await CLIENT_DIR.queryPermission(opts) !== "granted" && await CLIENT_DIR.requestPermission(opts) !== "granted")
-        throw new Error("no permission");
-      const fh = await CLIENT_DIR.getFileHandle(name, { create: true });
-      const w = await fh.createWritable();
-      await w.write(bytes);
-      await w.close();
-      toast(`Saved in the client folder: ${name}`);
-      return "folder";
-    } catch (e) { /* no permission, or the folder moved: download instead */ }
+// ---------------------------------------------------------------- writing into the client folder (design/conversion_plan.md A2)
+// The app may write only where Chrome allowed it: a folder added with "Add a folder…" or chosen with "Choose a folder…"
+// (Chrome asks "Allow this site to edit files?" once per session), or the one work-in-progress file picked with Browse….
+// PLACES maps each place on the in-memory drive (where Python wrote the file) to that folder / file on the computer.
+const PLACES = [];                                     // {place: "/client/docs/X/" (a folder, ends with /) or a file path, handle}
+function addPlace(place, handle) {
+  if (!PLACES.some(p => p.place === place)) PLACES.push({ place, handle });
+}
+async function saveFile(path, bytes) {
+  const hit = PLACES.filter(p => p.place === path || (p.place.endsWith("/") && path.startsWith(p.place)))
+    .sort((a, b) => b.place.length - a.place.length)[0];
+  if (!hit) return "nowhere";                          // (Python saves only where it may - see webapp.run_check)
+  try {
+    const opts = { mode: "readwrite" };
+    if (await hit.handle.queryPermission(opts) !== "granted" && await hit.handle.requestPermission(opts) !== "granted")
+      throw new Error("Chrome didn't allow editing the folder");
+    let fh = hit.handle;
+    if (hit.place.endsWith("/")) {                     // a folder: walk down to the file's sub-folder
+      const parts = path.slice(hit.place.length).split("/");
+      let dir = hit.handle;
+      for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part, { create: true });
+      fh = await dir.getFileHandle(parts[parts.length - 1], { create: true });
+    }
+    const w = await fh.createWritable();
+    await w.write(bytes);
+    await w.close();
+    return "saved";
+  } catch (e) {
+    toast("Couldn't save the work in progress in the client folder: " + (e.message || e));
+    return "failed";
   }
-  download(bytes, name, "application/octet-stream");
-  return "download";
 }
 function download(bytes, name, mime) {
   const url = URL.createObjectURL(new Blob([bytes], { type: mime || "application/octet-stream" }));
@@ -305,10 +353,13 @@ $("go").onclick = async () => {
     return p;
   };
   const pyret = one("pyret"), clientsum = one("clientsum");
+  for (const w of WIPS) if (!files.some(x => x.path === w.path)) files.push(w);   // saved work of the added folders (.bak, K-1)
+  if (PICK.wip && !files.some(x => x.path === WIP_PATH)) files.push({ path: WIP_PATH, file: PICK.wip });
   const single = new Set([pyret, clientsum].filter(Boolean));
   const g = await guard(files.filter(f => isPdf(f.file.name)).map(f => ({ ...f, single: single.has(f.path) })));
   if (g.stop) return fail(g.stop);
-  worker.postMessage({ type: "run", files, pyret, clientsum, docs: DOCS.filter(d => d.on).map(docPath), stuck: g.stuck });
+  worker.postMessage({ type: "run", files, pyret, clientsum, wip: PICK.wip ? WIP_PATH : "", docs: DOCS.filter(d => d.on).map(docPath),
+                       stuck: g.stuck, writable: PLACES.map(p => p.place) });
 };
 function done(m) {
   busy = false;
@@ -336,11 +387,14 @@ const SHIM = `<script>(() => {
     parent.u1040.go(h);
   }, true);
   addEventListener("submit", e => { e.preventDefault(); parent.u1040.toast("Not in the browser app yet."); }, true);
+  window.reloadPage = () => parent.u1040.reload();    // the templates call these where the desktop reloaded / navigated
+  window.goTo = url => parent.u1040.go(url);
 })();<\/script>`;
 let currentUrl = "";
-function showPage(html, url) {
+function showPage(html, url, reloaded) {
   currentUrl = url;
-  $("page").srcdoc = html.replace("<head>", "<head>" + SHIM);
+  const flag = reloaded ? "<script>window.u1040Reloaded = true;<\/script>" : "";   // the page keeps its open boxes
+  $("page").srcdoc = html.replace("<head>", "<head>" + SHIM + flag);
 }
 let toastT = 0;
 function toast(text) {
@@ -351,14 +405,21 @@ function toast(text) {
 }
 window.u1040 = {
   toast,
+  // the same page again, drawn from the run as it is now (after a save)
+  async reload() {
+    const r = await ask({ type: "request", method: "GET", url: currentUrl });
+    if (r.kind === "html") showPage(r.body, currentUrl, true);
+  },
   // a save or a data request from the page's script -> a Response, as fetch() gives
   async fetch(url, opts) {
     const method = (opts.method || "GET").toUpperCase();
-    const r = await ask({ type: "request", method, url, body: typeof opts.body === "string" ? opts.body : "" });
+    let body = typeof opts.body === "string" ? opts.body : "";
+    if (method === "POST" && /^\/wip\/[0-9a-f]+\/folder$/.test(url)) body = JSON.stringify(await chooseFolder());
+    const r = await ask({ type: "request", method, url, body });
     if (r.note) toast(r.note);
     if (r.kind === "file") return new Response(new Blob([r.body], { type: r.mime }), { status: r.status });
-    const body = r.kind === "json" ? JSON.stringify(r.body) : String(r.body);
-    return new Response(body, { status: r.status, headers: { "Content-Type": r.kind === "json" ? "application/json" : "text/html" } });
+    const text = r.kind === "json" ? JSON.stringify(r.body) : String(r.body);
+    return new Response(text, { status: r.status, headers: { "Content-Type": r.kind === "json" ? "application/json" : "text/html" } });
   },
   // a link: "/" = a new run; /open?path=... = a document in a new tab; anything else = a page or a download
   async go(url) {
@@ -377,6 +438,16 @@ window.u1040 = {
     toast(r.kind === "error" ? "Something went wrong: " + r.body : "Not in the browser app yet.");
   },
 };
+// "Choose a folder…" (the Summary, when there is no folder to save the work in): Chrome's folder window, with write access
+let saveFolders = 0;
+async function chooseFolder() {
+  if (!window.showDirectoryPicker) return { cancelled: true };
+  let dir;
+  try { dir = await window.showDirectoryPicker({ mode: "readwrite" }); } catch (e) { return { cancelled: true }; }
+  const place = `/client/save/${++saveFolders}-${dir.name}`;
+  addPlace(place + "/", dir);
+  return { folder: place };
+}
 $("newRun").onclick = () => { show($("result"), false); show($("start")); $("page").srcdoc = ""; currentUrl = ""; };
 
 // ---------------------------------------------------------------- the test checks (a folder with answer_key.xlsx / archive_reference.json)
@@ -408,7 +479,7 @@ function keysDone(m) {
   show($("keyResult"));
   count();
 }
-Object.assign(window.u1040Test, { saveFile, setClientDir: d => { CLIENT_DIR = d; }, probeLimit: 0 });
+Object.assign(window.u1040Test, { saveFile, addPlace, places: () => PLACES.map(p => p.place), probeLimit: 0 });
 </script>
 </body>
 </html>

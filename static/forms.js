@@ -220,7 +220,7 @@
     if (e.target.id === 'fvRefresh') {                                       // the Form view stays open after the reload
       try { sessionStorage.setItem('scrollY', scrollY); } catch (x) {}
       clearTimeout(timer);
-      post(tab().form).then(() => location.reload());
+      post(tab().form).then(() => reloadPage());
       return;
     }
     const rs = e.target.closest('.fvreset');

@@ -84,7 +84,7 @@
   const post = (url, body) => fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).then(r => r.json());
   document.querySelectorAll('select.aireq').forEach(s => s.addEventListener('change', async () => {
     await post(`/ai/${TOKEN}/choice`, {key: s.dataset.key, request: s.value});
-    location.reload();                                   // the request boxes below follow the dropdowns
+    reloadPage();                                   // the request boxes below follow the dropdowns
   }));
   function watch(btn, job) {
     const box = btn.closest('.aigroup'), st = box.querySelector('.aistatus'), err = box.querySelector('.aierr');
@@ -94,7 +94,7 @@
       try { j = await (await fetch(`/ai/${TOKEN}/job/${job}`)).json(); } catch (e) { setTimeout(tick, 3000); return; }
       if (j.error) { done(j.error); return; }
       if (!j.done) { st.textContent = `Waiting for the reply… ${j.seconds} s`; setTimeout(tick, 2000); return; }
-      location.reload();                                 // success or failure: the page shows the reply / the error
+      reloadPage();                                 // success or failure: the page shows the reply / the error
     };
     const done = msg => { btn.disabled = false; btn.textContent = 'Send'; st.textContent = ''; err.textContent = msg; err.style.display = ''; };
     tick();

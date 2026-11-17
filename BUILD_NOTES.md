@@ -128,6 +128,36 @@ section titles — written for the desktop app: its rules stay, its desktop deta
     can't click the system folder window) — for Lady to try in Chrome.
   - Known: the templates still call `location.reload()` after some saves (it re-shows the same page) — they are changed when
     those saves are converted.
+- **2026-11-17 — step 2 built: the work in progress + the Summary's saves** (Lady: "Go"):
+  - **Saves on the Summary work** (moved unchanged from the archive's app.py into `web\py\pages\summary.py`): corrected
+    amounts + Fed. w/h, Re-confirm, + lines, carryover + lines, Return Comments and "received?" comments, ticks and comments on
+    every line, the Document inventory (Verified, amounts, notes, free lines), an inventory note typed on the summary, the AI
+    ticks, *Save work in progress*, *Choose a folder…*. After each save the work in progress is saved, as on the desktop
+    (`routes.AUTOSAVE`). Still read-only: form tabs, UT summary, Schedule C / E, Excel (next step).
+  - **Where the work is saved:** the desktop's rule and file name (next to the Karbon letter, else the prior-year return),
+    but only inside a folder Chrome let the app edit — the folder added with *Add a folder…*, a folder chosen with
+    *Choose a folder…*, or the work-in-progress file picked with *Browse…* (Chrome's file window with write access).
+    The first save of a session keeps the old file as `.bak`, as before. Python writes the file on the tab's in-memory drive,
+    `pages.save_work` hands it to the page, the page writes it into the folder (`web\index.html` saveFile / PLACES).
+  - **Opening saved work:** *Add a folder…* with a `1040 Ultimate WIP … .json` in it shows *Work in progress found … Continue
+    where you left off / Start fresh* (desktop: when the return was picked). *Browse…* on the Work in progress field works.
+    The opening itself moved from app.py to `core\runcheck.py` (`open_work`, `put_back_work`): the same checks (another
+    client's work is refused), files that moved found by name under the work's folder - also for work saved by the desktop
+    app (Windows paths: `wip.file_name`).
+  - **Page reloads:** where the desktop reloaded the page after a save (`location.reload()`), the templates call
+    `reloadPage()` — the app draws the page again from the run, and open boxes stay open; `window.location = …` → `goTo(…)`.
+  - **Proven against the archive** (`tools\parity\scenario.py`: one save of each kind, chosen from the run so any client works,
+    applied in the archive through its own addresses and here through `routes.py`): the saved work, the income and deduction
+    summary (corrected amounts, flags, totals), and again after the saved work is opened — **the same on both sample clients**
+    — on this computer, and in the browser for Sample (K-1_Sample checked on this computer only: in the browser one check
+    takes about 10 minutes - each client is read twice). Only clock times are left out of the comparison.
+  - **Tried in the browser:** Run check with the folder → the work in progress written into it; a Return Comment, a Verified
+    tick and a free inventory line typed on the page → in the file at once (the page redrew itself after the amount); a new
+    page → *Work in progress found … Continue* → everything back, and the old file kept as `.bak`. (Tested on the browser's
+    own private storage, which has the same folder interface; Chrome's real folder window and its permission prompt are for
+    Lady to try.)
+  - Tests: 32 pass, 18 wait for the K-1 pages, `test_cases_found` fails as before. `test_docid.py` (4) back - work keyed by fingerprints: an older work file converted, a renamed / re-saved / replaced
+    document.
 - **Phase 1 built (2026-11-16, in the old folder):**
   - `core\pdfengine.py` is the one PDF door: nothing else in `core\` imports PyMuPDF (`pdfutil.py`, `utscreens.py`,
     `ai\docs.py`, `k1v\ut_entry.py` go through it). Its header lists what the browser stand-in (MuPDF.js) must cover.

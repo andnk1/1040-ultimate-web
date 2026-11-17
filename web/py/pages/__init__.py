@@ -84,6 +84,28 @@ def render(template: str, **context) -> str:
     return _ENV.get_template(template).render(**context)
 
 
+# ---------------------------------------------------------------- the work in progress (core/wip.py)
+def save_work(r: dict) -> str | None:
+    """Saves the run's work in progress (core/wip.py: the same file and the same .bak rule as the desktop app), then hands
+    the file to the page, which writes it into the client folder Chrome let the app edit (web/index.html saveFile).
+    Inside the browser the file is first written to the tab's in-memory drive at r["wip_path"]; on this computer's Python
+    (the tests) only that write happens. Returns the path, or None when the run has no place to save yet."""
+    from core import wip as wip_mod
+    had_bak = bool(r.get("wip_bak_done"))
+    path = wip_mod.save(r)
+    if not path:
+        return None
+    try:
+        import webhost                                   # only inside the browser (web/worker.js)
+    except ImportError:
+        return path
+    p = Path(path)
+    if not had_bak and p.with_suffix(".bak").is_file():  # the first save of the session kept the old file as .bak
+        webhost.save(str(p.with_suffix(".bak")), p.with_suffix(".bak").read_bytes())
+    webhost.save(str(p), p.read_bytes())
+    return path
+
+
 def not_yet(token: str, on: str, title: str, why: str, lead: str = "Not in the browser app yet.") -> Reply:
     """A step tab whose page isn't in the browser app yet: says so, with the step tabs (templates/not_yet.html).
     lead = the banner's first words (blank for a plain message, e.g. a run that isn't open any more)."""

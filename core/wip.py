@@ -56,6 +56,12 @@ def load(path: str) -> dict:
     return j
 
 
+def file_name(path: str) -> str:
+    """The file name of a path written on Windows (G:\\Clients\\x.pdf) or in the browser (/client/docs/x.pdf).
+    (Work saved by the desktop app holds Windows paths; in the browser they must still give the file's name.)"""
+    return str(path).replace("\\", "/").rsplit("/", 1)[-1]
+
+
 def relink(paths: list, folder: str) -> tuple[list, list]:
     """Documents that moved: look for the same file name under the WIP folder. Returns (paths, moved notes)."""
     missing = [p for p in paths if p and not Path(p).is_file()]
@@ -70,9 +76,9 @@ def relink(paths: list, folder: str) -> tuple[list, list]:
             names.setdefault(f.lower(), os.path.join(root, f))
     out, notes = [], []
     for p in paths:
-        if p and not Path(p).is_file() and Path(p).name.lower() in names:
-            q = names[Path(p).name.lower()]
-            notes.append(f"{Path(p).name}: moved — found in {Path(q).parent}")
+        if p and not Path(p).is_file() and file_name(p).lower() in names:
+            q = names[file_name(p).lower()]
+            notes.append(f"{file_name(p)}: moved — found in {Path(q).parent}")
             out.append(q)
         else:
             out.append(p)

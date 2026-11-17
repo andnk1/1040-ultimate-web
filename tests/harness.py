@@ -26,6 +26,10 @@ SAMPLES = HERE / "samples"
 KEY_NAME = "answer_key.xlsx"
 REF_NAME = "archive_reference.json"     # the archive's results (tools/parity/make_reference.py)
 sys.path.insert(0, str(APP_DIR))
+sys.path.insert(0, str(APP_DIR / "web" / "py"))         # the pages' Python (web/py/routes.py, web/py/pages/)
+
+import core.wip as _wip                                  # noqa: E402
+_wip.save = lambda r: None                               # a test never writes a work in progress (the desktop's rule)
 
 ROLES = ("Document", "Prior-year return", "UT input screens", "Current-year return", "Leave out")
 _TMP = None
@@ -81,6 +85,20 @@ def guess_roles(case: Path) -> dict:
 
 
 # ---------------------------------------------------------------- one run through the app
+def page(method: str, url: str, sent=None):
+    """One address of the pages, as the page frame sends it (web/py/routes.py) -> the reply (a dict: kind, status, body ...).
+    The run must be open: open_run(r)."""
+    import routes
+    return routes.handle(method, url, json.dumps(sent) if sent is not None else "")
+
+
+def open_run(r: dict) -> dict:
+    """Makes a run Run check gave known to the pages (as the browser app does after Run check)."""
+    from pages import RUNS
+    RUNS[r["token"]] = r
+    return r
+
+
 def run_case(case: Path, roles: dict, add_k1: bool = True) -> dict:
     """Run check on the case, as the first page does it (core/runcheck.run), and returns the run + what the K-1 section read."""
     from core import runcheck
@@ -471,5 +489,44 @@ def check_reference(case: Path) -> dict:
             out["sheets"].append(dict(name=name, rows=len(expected), checked=0,
                                       differences=[[str(v) for v in d] for d in diffs]))
             out["ok"] = out["ok"] and not diffs
+        for name, now in pages_after_edits(case, ref["roles"], r).items():     # the converted pages (scenario.py)
+            if name not in (ref.get("pages") or {}):
+                continue
+            diffs = _scenario().differences(_scenario().normalize(ref["pages"][name]), now)   # (the same rules on both sides)
+            out["sheets"].append(dict(name=f"Page: {name}", rows=1, checked=0,
+                                      differences=[["changed", "", "", d, "", ""] for d in diffs]))
+            out["ok"] = out["ok"] and not diffs
+    return out
+
+
+def _scenario():
+    sys.path.insert(0, str(APP_DIR / "tools" / "parity"))
+    import scenario
+    return scenario
+
+
+def pages_after_edits(case: Path, roles: dict, r: dict) -> dict:
+    """The Summary's saves (tools/parity/scenario.py) through this app's pages, then the saved work opened again - what the
+    archive check compares with the archive doing the same."""
+    import tempfile
+    import core.wip as wip_mod
+    from core import runcheck
+    sc = _scenario()
+    open_run(r)
+    inc, ded = runcheck.summaries(r)
+    for url, body in sc.edits(r, inc, ded):
+        reply = page("POST", url.format(token=r["token"]), body)
+        assert reply["status"] == 200, (url, reply)
+    snap = wip_mod.snapshot(r)
+    inc, ded = runcheck.summaries(r)
+    out = dict(summary_edits=sc.normalize(dict(work=snap, income=inc, deductions=ded)))
+    wp = Path(tempfile.mkdtemp(prefix="u1040_wip_")) / "1040 Ultimate WIP test.json"
+    wp.write_text(json.dumps(snap, default=str), encoding="utf-8")
+    pick = lambda role: next((str(case / n) for n, x in roles.items() if x == role and (case / n).is_file()), "")
+    docs = [str(case / n) for n, x in roles.items() if x == "Document" and (case / n).is_file()]
+    form = dict(pyret=pick("Prior-year return"), karbon="", clientsum="", utscreens=pick("UT input screens"), wip=str(wp))
+    r2 = open_run(runcheck.run(form, docs, work_dir=_work() / "accounts"))
+    inc2, ded2 = runcheck.summaries(r2)
+    out["summary_reopened"] = sc.normalize(dict(work=wip_mod.snapshot(r2), income=inc2, deductions=ded2))
     return out
 

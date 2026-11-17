@@ -3,7 +3,7 @@
 // onto Pyodide's in-memory drive (/client) and read there - nothing leaves the computer.
 //
 //   page -> worker
-//     {type: "run", files: [{path, file}], pyret, clientsum, docs, stuck}   Run check, then the Summary page
+//     {type: "run", files: [{path, file}], pyret, clientsum, wip, docs, stuck, writable}   Run check, then the Summary page
 //     {type: "request", id, method, url, body}    one address of a page (a link, a save, a download) - web/py/routes.py
 //     {type: "call", id, fn, args}                one of the start's helpers in web/py/webapp.py (passwords, stuck text)
 //     {type: "keycheck" | "archivecheck", files, folder}   the test checks (web/py/keycheck.py)
@@ -108,12 +108,13 @@ import json, webapp, webhost, routes
 from core.runcheck import Problem
 try:
     _token = webapp.run_check(ARGS["pyret"], list(ARGS["docs"]), webhost.step, clientsum=ARGS["clientsum"],
-                              stuck=list(ARGS["stuck"]))
+                              stuck=list(ARGS["stuck"]), wip=ARGS["wip"], writable=list(ARGS["writable"]))
     _out = json.dumps(dict(token=_token, page=routes.handle("GET", "/summary/" + _token)["body"]))
 except Problem as _e:
     _out = json.dumps(dict(problem=str(_e)))
 _out
-`, { pyret: m.pyret || "", clientsum: m.clientsum || "", docs: m.docs, stuck: m.stuck || [] });
+`, { pyret: m.pyret || "", clientsum: m.clientsum || "", docs: m.docs, stuck: m.stuck || [], wip: m.wip || "",
+      writable: m.writable || [] });
       const res = JSON.parse(out);
       if (res.problem) say("problem", { msg: res.problem });
       else say("done", { token: res.token, page: res.page, seconds: (performance.now() - t0) / 1000 });
