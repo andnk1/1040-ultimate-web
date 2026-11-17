@@ -1,3 +1,9 @@
+{# doclink: a source document's name; a PDF opens in a new browser tab (rule 2026-11-17 - other files will get a Google
+   Drive link, design/conversion_plan.md question 1). The PDF is the copy already in the tab: nothing is uploaded. #}
+{% macro doclink(path, name) -%}
+{%- if path and path.lower().endswith('.pdf') -%}<a class="doclink" href="/open?path={{ path|urlencode }}" title="Open in a new tab">{{ name }}</a>
+{%- else -%}{{ name }}{%- endif -%}
+{%- endmacro %}
 {# Document inventory - top of screen 1. Tabs: "Summary" (this table) + one per form type (static/forms.js, W2 built).
    Read documents are listed (amounts on the income summary);
    a not-read document can carry one amount + the income line it goes to; + adds free lines. #}
@@ -10,7 +16,7 @@
     <table class="v invt" id="invTable">
       <tr><th class="ck" title="Verified">✓</th><th>File name</th><th>Issuer</th><th>Type</th><th>Program read</th><th class="n">Amount</th><th>Added to</th><th>Note</th><th class="ck" title="Goes to the AI (masked)">AI</th></tr>
       {% if r.form.pyret %}<tr class="toairow"><td class="ck"></td>
-        <td>{{ r.form.pyret.split('\\')[-1].split('/')[-1] }} <span class="note">(prior-year return)</span></td><td></td><td>Prior Year return</td><td></td><td></td><td></td>
+        <td>{{ doclink(r.form.pyret, r.form.pyret.split('\\')[-1].split('/')[-1]) }} <span class="note">(prior-year return)</span></td><td></td><td>Prior Year return</td><td></td><td></td><td></td>
         <td class="note">Summary, carryovers and forms are in the AI report; tick to send the return too.</td>
         <td class="ck"><input type="checkbox" class="toai" data-path="{{ r.form.pyret }}" {{ 'checked' if r.to_ai.get(r.form.pyret) }}></td></tr>{% endif %}
       {% for d in invrows %}
@@ -21,7 +27,7 @@
         <td><input class="txt iissuer" value="{{ d.issuer }}" placeholder="Issuer"></td>
         <td></td><td></td>
         {% else %}
-        <td title="{{ d.path }}">{{ d.file }}{% if d.password %} <span class="note">(password)</span>{% endif %}{% if d.warn %}<div class="flag">{{ d.warn }}</div>{% endif %}</td>
+        <td title="{{ d.path }}">{{ doclink(d.path, d.file) }}{% if d.password %} <span class="note">(password)</span>{% endif %}{% if d.warn %}<div class="flag">{{ d.warn }}</div>{% endif %}</td>
         <td>{{ d.issuer }}</td>
         <td>{{ d.type }}{% if d.year_flag %} <span class="flag" title="Tax year on the document is not this year's">({{ d.year }})</span>{% endif %}</td>
         <td><span class="pill {{ RDL.get(d.read, RDL['none'])[0] }}">{{ RDL.get(d.read, RDL['none'])[1] }}</span></td>

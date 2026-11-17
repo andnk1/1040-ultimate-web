@@ -14,13 +14,13 @@ A page is done when it gives the same results as the archive on the sample clien
 | 1 · Summary | `summary.html` + 24 save / download addresses | **Shown, read-only** — the Sample case = its answer key (0 differences) |
 | 2 · Verify return | `verify.html` + 4 addresses | not yet |
 | 3 · AI Doc Review | `ai_requests.html` + 4 addresses, API key in `.env` | not yet — waits for the key decision |
-| 4 · AI Return Review, 5 · AI Advisory | placeholder pages | not yet (trivial) |
+| 4 · AI Return Review, 5 · AI Advisory | placeholder pages | **Built** (step A) — same pages |
 | 6 · K-1 Verification | `k1v\home.html` (new browser tab) | not yet |
 | 7 · K-1 Interpreter + K-1 entry check | `k1v\report.html`, `k1v\verify.html` | not yet |
 | 8 · K-1 UT | `k1v\prep.html` + CSV / Excel / PDF | not yet (the CSV itself is already checked: `tests\test_ut_export_format.py`) |
 | Mask page | `mask.html` | **not converted** — a separate app |
 
-## How the pages run without a server (step A — before any page)
+## How the pages run without a server (step A — before any page) — **built 2026-11-17**
 
 On the desktop, every click on a page went to the Python server (`/edits/<run>`, `/verify/<run>/save` …). In the browser the
 Python runs inside the tab (in the worker), so those addresses need a new answer:
@@ -124,6 +124,7 @@ summary ticks; (h) Income and Deduction Summary (Excel); (i) K-1 box Remove.
 
 ## Order of work (each step: stop, report the archive check, wait for "go")
 1. **A** — page plumbing, client-folder access, stuck-PDF guard, open-document links, the archive check tool; pages 4 · 5.
+   **Built 2026-11-17** — both sample clients = the archive (0 differences); details in BUILD_NOTES.md.
 2. **0 + 1a–1b** — work in progress (load / save), the Summary's corrections, ticks, comments, inventory.
 3. **1c–1i** — form tabs, UT summary, Schedule C / E, Excel, K-1 Remove.
 4. **2** — Verify return.

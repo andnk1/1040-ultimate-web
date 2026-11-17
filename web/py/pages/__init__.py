@@ -1,0 +1,90 @@
+"""pages - the Python behind each page of the browser app (one file per page).
+
+On the desktop, every click on a page went to a Python server at an address (/summary/<run>, /edits/<run> ...). In the browser
+the Python runs inside the tab: the page frame hands each address to the worker, web/py/routes.py looks it up in its table, and
+the function named there answers. The functions here are those answers.
+
+What every page function gets and gives back:
+    gets   the parts of the address (e.g. the run's token) and, for a save, the data the page sent
+    gives  one of the replies below - a page (HTML), data (JSON for the page's script), or a file (a download / a new tab)
+
+This file holds what all pages share: the runs kept while the app is open, the template drawing, and the reply kinds.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+APP = Path(__file__).resolve().parents[3]            # the app folder on the in-memory drive (core, templates ...)
+RUNS: dict = {}                                       # token -> the run (everything Run check read + the preparer's work)
+
+
+# ---------------------------------------------------------------- replies
+@dataclass
+class Reply:
+    """What a page function answers. kind = "html" (a page to show), "json" (data for the page's script) or "file"."""
+    kind: str
+    body: object = ""
+    status: int = 200
+    filename: str = ""                                # a file: its name
+    mime: str = ""                                    # a file: its type (application/pdf ...)
+    inline: bool = False                              # a file: open it in a new tab instead of downloading it
+    note: str = ""                                    # a short message the app shows (e.g. "not saved yet")
+    extra: dict = field(default_factory=dict)
+
+
+def page(html: str, status: int = 200) -> Reply:
+    return Reply("html", html, status)
+
+
+def data(obj, note: str = "") -> Reply:
+    return Reply("json", obj, note=note)
+
+
+def file(content: bytes, filename: str, mime: str, inline: bool = False) -> Reply:
+    return Reply("file", content, filename=filename, mime=mime, inline=inline)
+
+
+class NotFound(Exception):
+    """An address the app can't answer (a run that isn't open any more, a file that isn't there)."""
+
+
+def get_run(token: str) -> dict:
+    """The run with this token. A run lives only while the tab is open (nothing is saved yet)."""
+    r = RUNS.get(token)
+    if r is None:
+        raise NotFound("This run isn't open any more (the page was reloaded). Go back and click Run check again.")
+    return r
+
+
+# ---------------------------------------------------------------- drawing the templates (templates/*.html, Jinja2)
+def _url_for(endpoint: str, filename: str = "", **_kw) -> str:
+    """The templates were written for the desktop's Flask; they only use url_for('static', filename=...)."""
+    return "/static/" + filename if endpoint == "static" else "/" + endpoint
+
+
+def _ai_tab_name() -> str:
+    try:
+        from core.ai import settings
+        return settings.tab_name()
+    except Exception:  # noqa: BLE001 - the AI settings file missing must never stop a page
+        return "AI Doc Review"
+
+
+_ENV = None
+
+
+def render(template: str, **context) -> str:
+    global _ENV
+    if _ENV is None:
+        _ENV = Environment(loader=FileSystemLoader(str(APP / "templates")), autoescape=select_autoescape(["html", "htm", "xml"]))
+        _ENV.globals.update(url_for=_url_for, AI_TAB_NAME=_ai_tab_name())
+    return _ENV.get_template(template).render(**context)
+
+
+def not_yet(token: str, on: str, title: str, why: str, lead: str = "Not in the browser app yet.") -> Reply:
+    """A step tab whose page isn't in the browser app yet: says so, with the step tabs (templates/not_yet.html).
+    lead = the banner's first words (blank for a plain message, e.g. a run that isn't open any more)."""
+    return page(render("not_yet.html", token=token, on=on, title=title, why=why, lead=lead))

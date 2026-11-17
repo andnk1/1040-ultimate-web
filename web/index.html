@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>1040 Ultimate · browser version</title>
+<title>1040 Ultimate</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
   /* only what this page adds; the look is the desktop's (static/style.css, design/DESIGN_RULES.md) */
@@ -22,8 +22,8 @@
      browser's own file / folder windows; the picked files are read inside this tab. -->
 <div class="wrap narrow" id="start">
   <h1>1040 Ultimate</h1>
-  <p class="note">Browser version — preview (read only). The documents are read inside this browser tab: nothing is uploaded
-    and nothing is saved.</p>
+  <p class="note">The documents are read inside this browser tab: nothing is uploaded. Pages still being converted are shown
+    read-only (nothing is saved yet).</p>
 
   <div class="banner" id="loading">
     <b>Loading…</b> <span class="note">The first start takes about a minute (about 40 MB, then kept by the browser).</span>
@@ -43,7 +43,7 @@
           <button type="button" class="light small pickbtn" data-pick="clientsum">Browse…</button>
           <button type="button" class="light small hidden" data-clear="clientsum" title="Clear">✕</button></div></div>
       <div class="field"><label>Work in progress (.json) — optional</label>
-        <div class="pick"><input id="wip" readonly disabled placeholder="Not in the browser version yet — nothing is saved in this phase">
+        <div class="pick"><input id="wip" readonly disabled placeholder="Comes with the next step — nothing is saved yet">
           <button type="button" class="light small" disabled>Browse…</button></div></div>
       <div class="field"><label>Documents — optional</label>
         <div class="bar" style="margin:0 0 8px">
@@ -54,6 +54,7 @@
         <table class="v" id="docTable"></table></div>
       <button type="button" id="go">Run check</button>
       <button type="button" class="light hidden" id="keys">Check against the answer key</button>
+      <button type="button" class="light hidden" id="archive">Check against the archive</button>
       <div id="progress" class="hidden"><span class="note">Reading… large sets can take a few minutes.</span><ul id="steps"></ul></div>
       <div id="keyResult" class="hidden"></div>
       <input type="file" id="inPyret" accept=".pdf" class="hidden">
@@ -69,7 +70,7 @@
 <div id="result" class="hidden">
   <div id="topbar" class="banner">
     <button type="button" class="light small" id="newRun">← New run</button>
-    <span class="note">Browser version — preview (read only): changes are not saved; the other pages come later.</span>
+    <span class="note">Pages still being converted are read-only: changes are not saved yet.</span>
     <span class="note" id="took"></span>
   </div>
   <iframe id="page" title="Summary"></iframe>
@@ -83,10 +84,10 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;",
 // what was picked. A document: {name, folder ("Client X/sub/" or "" for a single file), file, on}
 const PICK = { pyret: null, clientsum: null };      // File or null
 let DOCS = [];
-let KEYCASE = null;                                  // {folder, files: [{rel, file}]} - a folder that has an answer_key.xlsx
+let CASE = null;                                     // {folder, files: [{rel, file}]} - a test case (answer key / archive results)
 let busy = false;
 // files that are never documents (the desktop's folder scan leaves the same ones out of sight)
-const SKIP = /^(~\$|\.)|\.(json|bak|tmp|lnk|ini)$|^(Thumbs\.db|answer_key\.xlsx)$/i;
+const SKIP = /^(~\$|\.)|\.(json|bak|tmp|lnk|ini)$|^(Thumbs\.db|answer_key\.xlsx|archive_reference\.json)$/i;
 const same = (a, b) => a && b && a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
 
 // ---------------------------------------------------------------- start-up: Python + libraries + the program, in a worker
@@ -107,7 +108,7 @@ function fail(msg) {
   show($("progress"), false);
   count();
 }
-worker.onerror = e => fail("The browser version couldn't start: " + (e.message || "see the browser console (F12)"));
+worker.onerror = e => fail("The app couldn't start: " + (e.message || "see the browser console (F12)"));
 worker.onmessage = e => {
   const m = e.data;
   if (m.type === "load") line("loadSteps", m.msg);
@@ -116,6 +117,8 @@ worker.onmessage = e => {
   else if (m.type === "problem" || m.type === "error") fail(m.msg);
   else if (m.type === "done") done(m);
   else if (m.type === "keys") keysDone(m);
+  else if (m.type === "reply") { const answer = waiting.get(m.id); waiting.delete(m.id); if (answer) answer(m); }
+  else if (m.type === "save") saveFile(m.name, m.bytes);
 };
 
 // ---------------------------------------------------------------- the two single files (prior-year return, summary)
@@ -141,8 +144,10 @@ function addDocs(list) {            // [{name, folder, file}] - a file already i
   draw();
 }
 function addFolder(top, files) {    // files: [{rel: "sub/name.pdf", file}]
-  if (files.some(f => f.rel === "answer_key.xlsx")) KEYCASE = { folder: top, files };
-  show($("keys"), !!KEYCASE);
+  const key = files.some(f => f.rel === "answer_key.xlsx"), ref = files.some(f => f.rel === "archive_reference.json");
+  if (key || ref) CASE = { folder: top, files };
+  show($("keys"), key);
+  show($("archive"), ref);
   addDocs(files.map(f => {
     const name = f.rel.split("/").pop();
     return { name, folder: top + "/" + f.rel.slice(0, f.rel.length - name.length), file: f.file };
@@ -159,7 +164,8 @@ async function walk(dir, prefix, out) {
 $("addFolder").onclick = async () => {
   if (!window.showDirectoryPicker) { $("inFolder").value = ""; return $("inFolder").click(); }
   let dir;
-  try { dir = await window.showDirectoryPicker({ mode: "read" }); } catch (e) { return; }      // closed without choosing
+  try { dir = await window.showDirectoryPicker({ mode: "readwrite" }); } catch (e) { return; }  // closed without choosing
+  CLIENT_DIR = CLIENT_DIR || dir;                      // the first folder added = the client folder (where the app keeps files)
   const out = [];
   await walk(dir, "", out);
   addFolder(dir.name, out);
@@ -188,22 +194,107 @@ $("docTable").onclick = e => { if (e.target.classList.contains("del")) { DOCS.sp
 window.u1040Test = { addFolder, addDocs, setPick };      // for automated checks only
 draw();
 
+// ---------------------------------------------------------------- talking to the worker (web/worker.js)
+// ask(msg) -> a promise of the worker's reply to that message (each request has its own number)
+let nextId = 1;
+const waiting = new Map();
+function ask(msg) {
+  const id = nextId++;
+  return new Promise(resolve => { waiting.set(id, resolve); worker.postMessage({ ...msg, id }); });
+}
+const callPy = (fn, ...args) => ask({ type: "call", fn, args }).then(r => r.body);
+
+// ---------------------------------------------------------------- the client folder (read + write, design/conversion_plan.md A2)
+// "Add a folder…" asks Chrome for read AND write access, so the app can keep files in the client's own folder (the work in
+// progress, later). Chrome asks "Allow this site to edit files?" once per session. Without a folder (single files only, or a
+// browser without folder access) a file the app keeps is downloaded instead.
+let CLIENT_DIR = null;                                 // the folder picked with "Add a folder…" (FileSystemDirectoryHandle)
+async function saveFile(name, bytes) {
+  if (CLIENT_DIR) {
+    try {
+      const opts = { mode: "readwrite" };
+      if (await CLIENT_DIR.queryPermission(opts) !== "granted" && await CLIENT_DIR.requestPermission(opts) !== "granted")
+        throw new Error("no permission");
+      const fh = await CLIENT_DIR.getFileHandle(name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(bytes);
+      await w.close();
+      toast(`Saved in the client folder: ${name}`);
+      return "folder";
+    } catch (e) { /* no permission, or the folder moved: download instead */ }
+  }
+  download(bytes, name, "application/octet-stream");
+  return "download";
+}
+function download(bytes, name, mime) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: mime || "application/octet-stream" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+// ---------------------------------------------------------------- the stuck-PDF guard (web/probe.js)
+// Before Run check every PDF is opened once in a separate small worker with a time limit - the desktop's safe_pdf.py. A PDF
+// that makes the PDF reader hang is named (file + page): a document is left out ("Not read" on the Summary); the prior-year
+// return or the summary stops the run with the desktop's message. The page itself never freezes.
+const LIMIT = { doc: 60, single: 90 };                 // seconds, as on the desktop (documents 60, the return / summary 90)
+let probe = null;
+function newProbe() {
+  const w = new Worker("probe.js", { type: "module" });
+  w.ready = new Promise(res => { w.onmessage = e => { if (e.data.ready) res(); }; });
+  return w;
+}
+async function probeOne(file, passwords, seconds) {
+  probe = probe || newProbe();
+  const w = probe;
+  await w.ready;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  return new Promise(resolve => {
+    let at = "open";
+    const timer = setTimeout(() => { w.terminate(); probe = null; resolve({ stuck: at }); }, seconds * 1000);
+    w.onmessage = e => {
+      if (e.data.at) at = e.data.at;
+      else { clearTimeout(timer); resolve({ ok: true, pages: e.data.pages }); }
+    };
+    w.postMessage({ bytes, passwords }, [bytes.buffer]);
+  });
+}
+// [{path, file, single}] -> {stuck: [paths of documents left out], stop: the message when the return / summary is stuck}
+async function guard(pdfs) {
+  const out = { stuck: [], stop: "" };
+  if (!pdfs.length) return out;
+  line("steps", `checking the files (${pdfs.length} PDF${pdfs.length === 1 ? "" : "s"})`);
+  const passwords = await callPy("password_candidates", pdfs.map(p => p.file.name));
+  for (const [i, p] of pdfs.entries()) {
+    const seconds = window.u1040Test.probeLimit || (p.single ? LIMIT.single : LIMIT.doc);
+    line("steps", `   opening ${p.file.name}`);
+    const r = await probeOne(p.file, passwords[i] || [], seconds);
+    if (!r.stuck) continue;
+    if (p.single) { out.stop = await callPy("stuck_message", p.file.name, r.stuck, seconds); break; }
+    line("steps", `      STUCK ${r.stuck} — left out`);
+    out.stuck.push(p.path);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- Run check
 // where each picked file sits on the in-memory drive: a document under /client/docs/<its folder>/ (single files under
 // /client/docs/_files/); the prior-year return / summary use the document's own copy when the same file is in the list
 // (as on the desktop, where it is one file on disk), else /client/picked/
 const docPath = d => "/client/docs/" + (d.folder || "_files/") + d.name;
-function start(msg) {
+const isPdf = name => /\.pdf$/i.test(name);
+function begin() {
   busy = true;
   count();
   show($("error"), false);
   show($("keyResult"), false);
   $("steps").innerHTML = "";
   show($("progress"));
-  worker.postMessage(msg);
 }
-$("go").onclick = () => {
+$("go").onclick = async () => {
   if (busy) return;
+  begin();
+  line("steps", "Run check received");
   const files = DOCS.filter(d => d.on).map(d => ({ path: docPath(d), file: d.file }));
   const one = id => {
     const f = PICK[id];
@@ -214,65 +305,110 @@ $("go").onclick = () => {
     return p;
   };
   const pyret = one("pyret"), clientsum = one("clientsum");
-  start({ type: "run", files, pyret, clientsum, docs: DOCS.filter(d => d.on).map(docPath) });
+  const single = new Set([pyret, clientsum].filter(Boolean));
+  const g = await guard(files.filter(f => isPdf(f.file.name)).map(f => ({ ...f, single: single.has(f.path) })));
+  if (g.stop) return fail(g.stop);
+  worker.postMessage({ type: "run", files, pyret, clientsum, docs: DOCS.filter(d => d.on).map(docPath), stuck: g.stuck });
 };
-// the page comes back as the desktop's own Summary template; inside the frame nothing is sent anywhere: a save answers
-// "ok" without saving, and a link to a page that isn't in the browser version yet says so
-const SHIM = `<script>(() => {
-  const f = window.fetch.bind(window);
-  window.fetch = (u, o) => (o && String(o.method || "").toUpperCase() === "POST")
-    ? Promise.resolve(new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } })) : f(u, o);
-  addEventListener("click", e => {
-    const a = e.target.closest && e.target.closest("a[href]");
-    const h = a && a.getAttribute("href");
-    if (!h || h.startsWith("#") || h.startsWith("javascript:")) return;
-    e.preventDefault(); e.stopPropagation();
-    parent.postMessage({ u1040: "nav", href: h }, "*");
-  }, true);
-})();<\/script>`;
 function done(m) {
   busy = false;
   show($("progress"), false);
-  $("page").srcdoc = m.html.replace("<head>", "<head>" + SHIM);
+  showPage(m.page, "/summary/" + m.token);
   $("took").textContent = `Read in ${Math.round(m.seconds)} s`;
   show($("start"), false);
   show($("result"));
   count();
 }
-$("newRun").onclick = () => { show($("result"), false); show($("start")); $("page").srcdoc = ""; };
+
+// ---------------------------------------------------------------- the pages after Run check (design/conversion_plan.md A1)
+// A page is drawn by Python (web/py/routes.py → web/py/pages/) and shown in the frame. Inside the frame, the page's own
+// links, saves and downloads use the desktop's addresses (/summary/<run>, /edits/<run> …): the few lines in SHIM hand each
+// one to u1040 below, which asks the worker. Nothing goes to a server.
+const SHIM = `<script>(() => {
+  const own = u => typeof u === "string" && u.startsWith("/") && !u.startsWith("/static/");
+  const f = window.fetch.bind(window);
+  window.fetch = (u, o) => own(u) ? parent.u1040.fetch(u, o || {}) : f(u, o);
+  addEventListener("click", e => {
+    const a = e.target.closest && e.target.closest("a[href]");
+    const h = a && a.getAttribute("href");
+    if (!own(h)) return;
+    e.preventDefault(); e.stopPropagation();
+    parent.u1040.go(h);
+  }, true);
+  addEventListener("submit", e => { e.preventDefault(); parent.u1040.toast("Not in the browser app yet."); }, true);
+})();<\/script>`;
+let currentUrl = "";
+function showPage(html, url) {
+  currentUrl = url;
+  $("page").srcdoc = html.replace("<head>", "<head>" + SHIM);
+}
 let toastT = 0;
-addEventListener("message", e => {
-  if (!e.data || e.data.u1040 !== "nav") return;
-  if (e.data.href === "/") return $("newRun").click();
-  $("toast").textContent = "Not in the browser version yet — this comes with the next phase.";
+function toast(text) {
+  $("toast").textContent = text;
   show($("toast"));
   clearTimeout(toastT);
-  toastT = setTimeout(() => show($("toast"), false), 2600);
-});
-
-// ---------------------------------------------------------------- the test answer keys (a folder with answer_key.xlsx)
-$("keys").onclick = () => {
-  if (busy || !KEYCASE) return;
-  const base = "/client/" + KEYCASE.folder;
-  start({ type: "keycheck", folder: base, files: KEYCASE.files.map(f => ({ path: base + "/" + f.rel, file: f.file })) });
+  toastT = setTimeout(() => show($("toast"), false), 3200);
+}
+window.u1040 = {
+  toast,
+  // a save or a data request from the page's script -> a Response, as fetch() gives
+  async fetch(url, opts) {
+    const method = (opts.method || "GET").toUpperCase();
+    const r = await ask({ type: "request", method, url, body: typeof opts.body === "string" ? opts.body : "" });
+    if (r.note) toast(r.note);
+    if (r.kind === "file") return new Response(new Blob([r.body], { type: r.mime }), { status: r.status });
+    const body = r.kind === "json" ? JSON.stringify(r.body) : String(r.body);
+    return new Response(body, { status: r.status, headers: { "Content-Type": r.kind === "json" ? "application/json" : "text/html" } });
+  },
+  // a link: "/" = a new run; /open?path=... = a document in a new tab; anything else = a page or a download
+  async go(url) {
+    if (url === "/") return $("newRun").click();
+    const tab = url.startsWith("/open?") ? window.open("about:blank", "_blank") : null;   // opened now, while the click counts
+    const r = await ask({ type: "request", method: "GET", url });
+    if (r.kind === "html") { if (tab) tab.close(); return showPage(r.body, url); }
+    if (r.kind === "file" && r.inline && tab) {
+      tab.location = URL.createObjectURL(new Blob([r.body], { type: r.mime }));
+      return;
+    }
+    if (tab) tab.close();
+    if (r.kind === "file" && r.inline)                // Chrome blocked the new tab (pop-ups off for this site)
+      toast("Chrome blocked the new tab — allow pop-ups for this site (icon at the right of the address bar). Downloaded instead.");
+    if (r.kind === "file") return download(r.body, r.filename, r.mime);
+    toast(r.kind === "error" ? "Something went wrong: " + r.body : "Not in the browser app yet.");
+  },
 };
+$("newRun").onclick = () => { show($("result"), false); show($("start")); $("page").srcdoc = ""; currentUrl = ""; };
+
+// ---------------------------------------------------------------- the test checks (a folder with answer_key.xlsx / archive_reference.json)
+// Check against the answer key: the case's answer_key.xlsx (tests/samples/<case>). Check against the archive: the results the
+// retired desktop app (python-final) gave for the same case, written by tools/parity/make_reference.py.
+function check(type) {
+  if (busy || !CASE) return;
+  const base = "/client/" + CASE.folder;
+  begin();
+  worker.postMessage({ type, folder: base, files: CASE.files.map(f => ({ path: base + "/" + f.rel, file: f.file })) });
+}
+$("keys").onclick = () => check("keycheck");
+$("archive").onclick = () => check("archivecheck");
 function keysDone(m) {
   busy = false;
   show($("progress"), false);
-  const r = m.result;
-  let h = `<div class="banner"><b>${r.ok ? "Same as the answer key" : "Different from the answer key"}</b> — ${esc(r.case)}, `
-        + `${Math.round(m.seconds)} s</div><table class="v"><tr><th>Sheet</th><th>Rows read</th><th>Checked in the key</th><th>Differences</th></tr>`;
-  for (const s of r.sheets) h += `<tr><td class="b">${esc(s.name)}</td><td>${s.rows}</td><td>${s.checked}</td><td>${s.differences.length}</td></tr>`;
+  const r = m.result, what = r.against || "the answer key", key = !r.against;      // r.against = the archive check
+  let h = `<div class="banner"><b>${r.ok ? "Same as " + what : "Different from " + what}</b> — ${esc(r.case)}, `
+        + `${Math.round(m.seconds)} s</div><table class="v"><tr><th>Sheet</th><th>Rows</th>${key ? "<th>Checked in the key</th>" : ""}<th>Differences</th></tr>`;
+  for (const s of r.sheets)
+    h += `<tr><td class="b">${esc(s.name)}</td><td>${s.rows}</td>${key ? `<td>${s.checked}</td>` : ""}<td>${s.differences.length}</td></tr>`;
   h += "</table>";
   const diffs = r.sheets.flatMap(s => s.differences.map(d => [s.name, ...d]));
   if (diffs.length) {
-    h += '<table class="v"><tr><th>Sheet</th><th>What</th><th>File</th><th>Form #</th><th>Line</th><th>Key</th><th>Now</th></tr>'
+    h += '<table class="v"><tr><th>Sheet</th><th>What</th><th>File</th><th>Form #</th><th>Line</th><th>Expected</th><th>Now</th></tr>'
        + diffs.slice(0, 300).map(d => "<tr>" + d.map(v => `<td>${esc(v)}</td>`).join("") + "</tr>").join("") + "</table>";
   }
   $("keyResult").innerHTML = h;
   show($("keyResult"));
   count();
 }
+Object.assign(window.u1040Test, { saveFile, setClientDir: d => { CLIENT_DIR = d; }, probeLimit: 0 });
 </script>
 </body>
 </html>

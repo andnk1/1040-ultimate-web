@@ -98,7 +98,36 @@ section titles — written for the desktop app: its rules stay, its desktop deta
     it is converted; `test_cases_found` fails as before (K-1_Sample has no answer key). The Sample case matches its key.
   - `design\ut_export_format.md` + `tests\test_ut_export_format.py`: the UT data entry export checked against its written
     format (a made-up K-1 and the 26 Ready sample K-1s).
-  - Next: the page-by-page conversion, `design\conversion_plan.md` — waiting for Lady's "go".
+  - `APPS_ARCHITECTURE.md` fixed in both apps, still identical (Lady, 2026-11-17): master copy = this folder, the 1040 = the
+    browser app, a pointer to `design\ut_export_format.md`, neutral CSV examples (no real partnership / EIN / digits).
+  - Next: the page-by-page conversion, `design\conversion_plan.md`.
+- **2026-11-17 — step A of the conversion built** (Lady: "Go, step A"; plan `design\conversion_plan.md`):
+  - **Pages without a server:** `web\py\routes.py` = one table *address → Python function*, the same addresses the templates
+    already use (`/summary/<run>` …); the functions are in `web\py\pages\` (one file per page: `summary.py`, `verify.py`,
+    `ai.py`, `k1.py`, `documents.py`; shared helpers in `pages\__init__.py`). In the page frame a few lines (`SHIM` in
+    `web\index.html`) hand every link, save and download to the worker. No Flask. An address not converted yet: a page says
+    "Not in the browser app yet" (with the step tabs); a save answers "Not saved" (a short message shows).
+  - Working now: the step tabs (1 · Summary, 4 · AI Return Review, 5 · AI Advisory as on the desktop; 2 · Verify return,
+    3 · AI Doc Review, K-1 Verification say they come later), *Export Template* / *Blank template* (Schedule E) as downloads.
+  - **Client folder:** *Add a folder…* now asks Chrome for read + write access; the first folder added is the client folder
+    where the app will keep files (the work in progress, next step). Without one, the file is downloaded instead.
+  - **Stuck-PDF guard** (`web\probe.js`): before Run check every PDF is opened in a separate small worker with MuPDF.js, with
+    the desktop's time limits (documents 60 s, the prior-year return / summary 90 s). A stuck document is left out and listed
+    "Not read" with the desktop's text; a stuck return / summary stops with the desktop's message. 17 PDFs: a few seconds.
+  - **Open a source document:** a PDF's name on the Document inventory (and the prior-year return's) opens the PDF in a new
+    Chrome tab, from the copy in the tab (`/open?path=…`). If Chrome blocks the new tab (pop-ups off for the site) the app says
+    so and downloads the PDF instead. Other files: plain name until the Google Drive link question is answered.
+  - **The archive check:** `tools\parity\make_reference.py` takes a clean copy of `python-final` (`git archive`, temporary
+    folder - the old repository isn't touched) and the archive's own test harness, and writes what the archive reads for each
+    sample client into `tests\samples\<case>\archive_reference.json` (local only). `tests\test_archive.py` compares on this
+    computer; **Check against the archive** in the page compares in the browser (`web\py\keycheck.py` →
+    `harness.check_reference`, one copy). Result: **both sample clients = the archive, 0 differences** — Sample (376 / 22 / 35
+    rows, 70 s in the browser) and K-1_Sample (805 / 52 / 50 rows, 126 s), on this computer and in the browser.
+  - Tests: 28 pass (incl. the archive check), 22 wait for their page, `test_cases_found` fails as before (K-1_Sample has no answer key).
+  - Not proven here: the real new Chrome tab for a PDF and Chrome's real folder windows (the test browser blocks pop-ups and
+    can't click the system folder window) — for Lady to try in Chrome.
+  - Known: the templates still call `location.reload()` after some saves (it re-shows the same page) — they are changed when
+    those saves are converted.
 - **Phase 1 built (2026-11-16, in the old folder):**
   - `core\pdfengine.py` is the one PDF door: nothing else in `core\` imports PyMuPDF (`pdfutil.py`, `utscreens.py`,
     `ai\docs.py`, `k1v\ut_entry.py` go through it). Its header lists what the browser stand-in (MuPDF.js) must cover.
@@ -179,9 +208,8 @@ section titles — written for the desktop app: its rules stay, its desktop deta
 ## Open questions
 - The conversion plan's five questions (Drive links, master checklist, K-1 pages in the same window, more sample clients,
   the by-hand PDF) — `design\conversion_plan.md`.
-- `APPS_ARCHITECTURE.md` (shared with UT_Data_Entry, changed only together): its "master copy" line still names
-  `C:\dev\1040_ultimate`, and its CSV example uses a real partnership name / EIN and a partner's last 4 digits.
-  (The copied K-1 UT mock-up `design\k1_prep_mockup.html` has the same kind of values: kept local, not in git.)
+- The copied K-1 UT mock-up `design\k1_prep_mockup.html` has real partnership names / EINs and partner digits:
+  kept local, not in git.
 - One start file for all the apps, or each started on its own? — history: "Masking and printing = separate apps".
 - 1099 composite joint accounts: how UltraTax carries them (decide when the composite is built) — history: "Form view — next forms".
 - The Sample K-1s read with no EIN and no partnership name — pending item 7 of the 2026-11-05 list.

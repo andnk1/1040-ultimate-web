@@ -32,6 +32,7 @@ _work/
 tests/samples/
 tests/fixtures/
 tests/**/answer_key.xlsx
+**/archive_reference.json
 
 # ---- AI: logs and any key
 AI_logs/

@@ -1,11 +1,12 @@
 # 1040 Ultimate + UT Data Entry — how the two apps fit (shared rules)
 
-Master copy: `C:\dev\1040_ultimate\APPS_ARCHITECTURE.md`. An identical copy sits in `C:\dev\UT_Data_Entry`.
+Master copy: `C:\dev\1040_ultimate_web\APPS_ARCHITECTURE.md` (the browser app). An identical copy sits in `C:\dev\UT_Data_Entry`.
 Change it only together with Lady, in both folders at once (the two files stay identical). Decided 2026-11-05;
-the UltraTax entry rules (Bot / By hand) moved to the 1040 on 2026-11-11.
+the UltraTax entry rules (Bot / By hand) moved to the 1040 on 2026-11-11; the 1040 became the browser app on 2026-11-17
+(the desktop 1040 is retired - archive: git tag `python-final` in the old `1040_ultimate` repository).
 
 ## Roles
-- **1040 Ultimate** (`C:\dev\1040_ultimate`) does all the reading, checking and preparing: reads the documents (Python readers,
+- **1040 Ultimate** (`C:\dev\1040_ultimate_web`, the browser app) does all the reading, checking and preparing: reads the documents (Python readers,
   later the Claude API), lets the preparer verify them (form tabs, K-1 page, corrections), builds the income summary, checks what
   was entered in UltraTax against the documents (Verify return, K-1 entry check), **decides what goes into UltraTax by bot and
   what by hand** (the entry rules, `core/k1v/ut_entry.py`) and **exports the data-entry CSV**.
@@ -55,14 +56,16 @@ UltraTax input screens print ─> 1040 Ultimate: K-1 entry check / Verify return
 
 ## The CSV (the contract between the apps)
 One row per line of one form. A column change is agreed with Lady and built in both apps together.
+The 1040's `design\ut_export_format.md` writes the same format out rule by rule, and its test checks every export
+against it; the 1040 only produces the file (it is downloaded from the K-1 UT page), UT Data Entry reads it.
 
 | Column | Example | Notes |
 |---|---|---|
 | `form` | 1065 | 1065 / 1120S / W2 / … |
 | `doc_id` | 3f9a1c…#2 | one form: file fingerprint # page (the bot groups lines by it) |
-| `payer_ein` | 92-3585592 | partnership / employer / payer EIN as printed |
-| `payer_name` | RANCHERS GLOBAL LLC | |
-| `recipient_id` | XXX-XX-2400 | partner / employee / recipient ID as printed (K-1 box E) |
+| `payer_ein` | 12-3456789 | partnership / employer / payer EIN as printed |
+| `payer_name` | DEMO PARTNERS LP | |
+| `recipient_id` | XXX-XX-1234 | partner / employee / recipient ID as printed (K-1 box E) |
 | `box` | 20 | K-1 Part II item: `G` / `H1` / `J` / `K1_nonrecourse` / `K1_qualified` / `K1_recourse` / `L` / `M` / `N` (see below) |
 | `code` | A | blank for boxes without codes |
 | `amount` | 63.00 | as verified, with cents (UT Data Entry rounds); `X` = checkbox ticked; Part II item: the value as text |

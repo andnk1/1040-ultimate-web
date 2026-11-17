@@ -52,12 +52,14 @@ EMPTY_PY = dict(file="", pages=0, year=None, software="", summary=None, filing_s
                 expected=[], carryovers=[], warnings=[])
 
 
-def run(form: dict, docs: list, *, work_dir, step=_quiet, k1w=None) -> dict:
+def run(form: dict, docs: list, *, work_dir, step=_quiet, k1w=None, stuck_docs=()) -> dict:
     """Run check, start to end, as the first page does it. form = {pyret, karbon, clientsum, utscreens, wip}: paths of the
     picked files ('' = not picked); docs = the documents to read. The run gets a new "token" (its name while the app is
-    open). Raises Problem when a picked file is the wrong kind - the text is shown to the preparer."""
+    open). stuck_docs = documents the PDF reader got stuck on before Run check (left out, listed as "Not read").
+    Raises Problem when a picked file is the wrong kind - the text is shown to the preparer."""
     check_form(form)
-    r = read(form, docs, work_dir=work_dir, make_k1_run=k1runs.make_run, k1w=k1w, step=step)
+    docs = [p for p in docs if p not in set(stuck_docs)]
+    r = read(form, docs, work_dir=work_dir, make_k1_run=k1runs.make_run, k1w=k1w, stuck_docs=list(stuck_docs), step=step)
     r["token"] = uuid.uuid4().hex[:12]
     if r.get("k1v_token"):
         k1runs.set_owner(r["k1v_token"], r["token"])       # the K-1 run belongs to this run from the start

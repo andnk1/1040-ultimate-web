@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1040 Ultimate · {{ title }}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+{% from '_steps.html' import steps %}
+{# A page that isn't in the browser app yet (web/py/pages/__init__.py not_yet): says so, keeps the step tabs. #}
+<div class="wrap">
+  <h1>{{ title }}</h1>
+  {% if token %}{{ steps(token, on) }}{% endif %}
+  <div class="banner">{{ lead }} {{ why }}</div>
+  {% if token %}<p><a class="btn alt" href="/summary/{{ token }}">← Back to Summary</a></p>{% endif %}
+</div>
+</body>
+</html>

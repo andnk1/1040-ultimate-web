@@ -1,77 +1,45 @@
-"""webapp.py - the browser app's Python side (Python runs in the browser tab with Pyodide - design\\web_version.md).
+"""webapp.py - the browser app's start: Run check from the first page (web/index.html), and the stuck-PDF guard's texts.
 
-Today: read-only. Pick the files -> Run check -> the Summary page (document inventory + income summary), drawn with the
-page template (templates\\summary.html) and the engine (core\\runcheck.py). Nothing is saved yet. The other pages come
-one at a time (design\\conversion_plan.md).
+The pages after Run check are answered by web/py/routes.py (the address table) and web/py/pages/ (one file per page).
 
-Called from web\\worker.js:
-    run_check(pyret, docs, step, clientsum)   -> token      (Run check: core\\runcheck.run)
-    summary_html(token)            -> the Summary page as HTML
+Called from web/worker.js:
+    run_check(pyret, docs, step, clientsum, stuck)  -> the run's token (Run check itself: core/runcheck.run)
+    password_candidates(names)                      -> the passwords to try for each PDF (the stuck-PDF guard needs them)
+    stuck_message(name, where, seconds)             -> the text shown when the PDF reader gets stuck on a file
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
-
 from core import runcheck
-from core.inventory import ROUTE_LBL
-from core.pl import MAP_LINES as PL_MAP_LINES
-from core.py_return import SCHC_LINES, SCHE_LINES
+from core.pdfutil import password_candidates as _candidates
 
-APP = Path(__file__).resolve().parents[2]            # the app folder on the in-memory drive (core, templates ...)
+from pages import RUNS
+
 WORK = Path("/work")                                 # split brokerage packages (in memory, gone when the tab closes)
-RUNS: dict = {}
 
 
 def _quiet(msg):
     pass
 
 
-def run_check(pyret: str, docs: list, step=_quiet, clientsum: str = "") -> str:
+def run_check(pyret: str, docs: list, step=_quiet, clientsum: str = "", stuck: list | None = None) -> str:
     """pyret = the prior-year return, clientsum = the client summary (PDF / Word) - '' = not picked; docs = the documents
-    to read. All are paths on the in-memory drive. The checks are core\\runcheck.check_form."""
-    step("Run check received")
+    to read; stuck = documents the PDF reader got stuck on (left out). All are paths on the in-memory drive."""
     form = dict(pyret=pyret or "", karbon="", clientsum=clientsum or "", utscreens="", wip="")
-    r = runcheck.run(form, [str(p) for p in docs], work_dir=WORK / "accounts", step=step)
+    r = runcheck.run(form, [str(p) for p in docs], work_dir=WORK / "accounts", step=step, stuck_docs=list(stuck or []))
     RUNS[r["token"]] = r
     r["wip_path"] = None                             # nothing is saved yet (the work in progress comes with its own step)
     step("done")
     return r["token"]
 
 
-# ---------------------------------------------------------------- the page (templates/summary.html, drawn by Jinja2)
-def _url_for(endpoint: str, filename: str = "", **_kw) -> str:
-    return "/static/" + filename if endpoint == "static" else "/" + endpoint
+def password_candidates(names: list) -> list:
+    """For each file name, the passwords to try (same rules as Run check: core/pdfutil.py - "PW-xxxx" in the name first)."""
+    return [_candidates(Path(n)) for n in names]
 
 
-def _tab_name() -> str:
-    try:
-        from core.ai import settings
-        return settings.tab_name()
-    except Exception:  # noqa: BLE001
-        return "AI Doc Review"
-
-
-_ENV = None
-
-
-def _env() -> Environment:
-    global _ENV
-    if _ENV is None:
-        _ENV = Environment(loader=FileSystemLoader(str(APP / "templates")), autoescape=select_autoescape(["html", "htm", "xml"]))
-        _ENV.globals.update(url_for=_url_for, AI_TAB_NAME=_tab_name())
-    return _ENV
-
-
-def summary_html(token: str) -> str:
-    r = RUNS[token]
-    r.setdefault("comments", {})
-    inc, ded = runcheck.summaries(r)
-    invrows = runcheck.inventory_rows(r)
-    return _env().get_template("summary.html").render(
-        r=r, token=token, ROUTE_LBL=ROUTE_LBL, inc=inc, ded=ded, MAPL=PL_MAP_LINES, k1=runcheck.k1_status(r),
-        invrows=invrows, INV_SECS=runcheck.INV_SECS, fv=runcheck.form_view_data(r, inc, invrows, ded),
-        SCHC=list(SCHC_LINES.items()), schc_json=json.dumps(r["schc"]),
-        SCHE=list(SCHE_LINES.items()), sche_json=json.dumps(r.get("sche") or []))
+def stuck_message(name: str, where: str, seconds: int) -> str:
+    """The desktop's text for a PDF that makes the reader hang (same words, so the preparer knows what to do)."""
+    return (f"\"{name}\": the PDF reader got stuck on {name} ({where or 'opening it'}) after {seconds} seconds. Open it in "
+            "Acrobat and save a copy (File → Save As, or print it to Microsoft Print to PDF), then pick the copy.")

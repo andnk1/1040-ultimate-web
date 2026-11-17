@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import re
 import sys
 import tempfile
@@ -23,6 +24,7 @@ HERE = Path(__file__).resolve().parent
 APP_DIR = HERE.parent
 SAMPLES = HERE / "samples"
 KEY_NAME = "answer_key.xlsx"
+REF_NAME = "archive_reference.json"     # the archive's results (tools/parity/make_reference.py)
 sys.path.insert(0, str(APP_DIR))
 
 ROLES = ("Document", "Prior-year return", "UT input screens", "Current-year return", "Leave out")
@@ -44,7 +46,7 @@ def case_dirs() -> list[Path]:
 
 def case_files(case: Path) -> list[Path]:
     return sorted((p for p in case.iterdir() if p.is_file() and not p.name.startswith(("~$", "."))
-                   and p.name != KEY_NAME), key=lambda p: p.name.lower())
+                   and p.name not in (KEY_NAME, REF_NAME)), key=lambda p: p.name.lower())
 
 
 def guess_roles(case: Path) -> dict:
@@ -449,3 +451,25 @@ def report(diffs: list) -> str:
         lines.append(f"  [{kind}] {f}" + (f" #{n}" if n else "") + f" | {w}" +
                      (f" | key: {e} | now: {v}" if kind in ("changed", "not read now", "new") else ""))
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------- the archive check (tools/parity/make_reference.py)
+
+
+def check_reference(case: Path) -> dict:
+    """The case through this app, compared with what the retired desktop app (python-final) read for it - the three sheets.
+    The reference is written by tools/parity/make_reference.py into the case folder (local only, like the answer key).
+    -> {case, against, archive, sheets: [{name, rows, checked, differences}], ok}"""
+    ref = json.loads((case / REF_NAME).read_text(encoding="utf-8"))
+    r = run_case(case, ref["roles"])
+    out = dict(case=case.name, against="the archive (python-final)", archive=ref.get("archive", ""), sheets=[], ok=True)
+    with contextlib.redirect_stdout(io.StringIO()):
+        for name, fn in SHEETS:
+            expected = [dict(file=f, form="" if n in (None, "") else str(n), what=w, expected=v, checked="")
+                        for f, n, w, v in ref["sheets"].get(name, [])]
+            diffs = compare(expected, fn(r))
+            out["sheets"].append(dict(name=name, rows=len(expected), checked=0,
+                                      differences=[[str(v) for v in d] for d in diffs]))
+            out["ok"] = out["ok"] and not diffs
+    return out
+
