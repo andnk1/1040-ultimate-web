@@ -336,7 +336,11 @@ documents over 10 pages send only their summary pages to the AI; a tax year othe
 | `web/worker.js` | Python (Pyodide) + MuPDF.js in a Web Worker: the picked files go onto its in-memory drive and are read there |
 | `web/py/webapp.py` | The browser app's Python side: Run check, the Summary page drawn from `templates/` |
 | `web/py/pymupdf_js.py`, `web/mupdf_bridge.mjs` | The PDF stand-in: MuPDF.js giving the same text and words PyMuPDF gave |
-| `web/py/keycheck.py` | "Check against the answer key" inside the browser |
+| `web/py/routes.py` | The address table: which Python function answers each page address (link, save, download) |
+| `web/py/pages/` | The Python behind each page (one file per page) |
+| `web/probe.js` | The stuck-PDF guard: each PDF opened first in a small worker with a time limit |
+| `web/py/keycheck.py` | "Check against the answer key" / "Check against the archive" inside the browser |
+| `tools/parity/make_reference.py` | The archive's results (python-final) for each sample client — what the app must match |
 | `web/get_vendor.py` | Downloads Pyodide, the libraries and MuPDF.js into `web/vendor` (once; versions fixed there) |
 | `core/runcheck.py` | Run check: the first page's checks, the reading steps, the inventory rows, the summaries |
 | `core/pdfengine.py` | The one PDF door: the only place in `core/` that loads the PDF engine |
@@ -352,3 +356,4 @@ documents over 10 pages send only their summary pages to the AI; a tax year othe
 | `templates/`, `static/` | The pages and their scripts / CSS (same look as the K-1 tools; `design/DESIGN_RULES.md`) |
 | `tests/` | The tests and the answer-key harness (`samples/` local only) |
 | `design/` | Specs: the brief (`web_version.md`), the conversion plan, the UT export format, screen specs |
+"# 1040-ultimate-web" 
