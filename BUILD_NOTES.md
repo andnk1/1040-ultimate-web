@@ -180,7 +180,7 @@ section titles — written for the desktop app: its rules stay, its desktop deta
 - The conversion plan's five questions (Drive links, master checklist, K-1 pages in the same window, more sample clients,
   the by-hand PDF) — `design\conversion_plan.md`.
 - `APPS_ARCHITECTURE.md` (shared with UT_Data_Entry, changed only together): its "master copy" line still names
-  `C:\devD0_ultimate`, and its CSV example uses a real partnership name / EIN and a partner's last 4 digits.
+  `C:\dev\1040_ultimate`, and its CSV example uses a real partnership name / EIN and a partner's last 4 digits.
   (The copied K-1 UT mock-up `design\k1_prep_mockup.html` has the same kind of values: kept local, not in git.)
 - One start file for all the apps, or each started on its own? — history: "Masking and printing = separate apps".
 - 1099 composite joint accounts: how UltraTax carries them (decide when the composite is built) — history: "Form view — next forms".
