@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1040 Ultimate · browser version</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  /* only what this page adds; the look is the desktop's (static/style.css, design/DESIGN_RULES.md) */
+  #loading ul, #progress ul { list-style: none; margin: 8px 0 0; padding: 0; }
+  #loading li, #progress li { padding: 2px 0; }
+  #loading li.now::after, #progress li.now::after { content: " …"; }
+  #progress ul { max-height: 260px; overflow: auto; font-size: .85rem; }
+  #topbar { display: flex; gap: 14px; align-items: center; padding: 6px 16px; }
+  #topbar .note { flex: 1; }
+  #page { width: 100%; height: calc(100vh - 46px); border: 0; display: block; }
+  #toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 9; }
+</style>
+</head>
+<body>
+<!-- The first page: the same fields, in the same order, as the desktop's (templates/home.html). The Browse buttons open the
+     browser's own file / folder windows; the picked files are read inside this tab. -->
+<div class="wrap narrow" id="start">
+  <h1>1040 Ultimate</h1>
+  <p class="note">Browser version — preview (read only). The documents are read inside this browser tab: nothing is uploaded
+    and nothing is saved.</p>
+
+  <div class="banner" id="loading">
+    <b>Loading…</b> <span class="note">The first start takes about a minute (about 40 MB, then kept by the browser).</span>
+    <ul id="loadSteps"></ul>
+  </div>
+  <div class="error hidden" id="error"></div>
+
+  <div class="card hidden" id="pickCard">
+    <div class="cardhead">Choose the files</div>
+    <div class="cardbody">
+      <div class="field"><label>Prior-year return (PDF) — optional</label>
+        <div class="pick"><input id="pyret" readonly placeholder="">
+          <button type="button" class="light small pickbtn" data-pick="pyret">Browse…</button>
+          <button type="button" class="light small hidden" data-clear="pyret" title="Clear">✕</button></div></div>
+      <div class="field"><label>Summary (PDF or Word) — optional</label>
+        <div class="pick"><input id="clientsum" readonly placeholder="">
+          <button type="button" class="light small pickbtn" data-pick="clientsum">Browse…</button>
+          <button type="button" class="light small hidden" data-clear="clientsum" title="Clear">✕</button></div></div>
+      <div class="field"><label>Work in progress (.json) — optional</label>
+        <div class="pick"><input id="wip" readonly disabled placeholder="Not in the browser version yet — nothing is saved in this phase">
+          <button type="button" class="light small" disabled>Browse…</button></div></div>
+      <div class="field"><label>Documents — optional</label>
+        <div class="bar" style="margin:0 0 8px">
+          <button type="button" class="pickbtn" id="addFiles">Add documents…</button>
+          <button type="button" class="pickbtn" id="addFolder">Add a folder…</button>
+          <span class="note" id="cnt"></span>
+        </div>
+        <table class="v" id="docTable"></table></div>
+      <button type="button" id="go">Run check</button>
+      <button type="button" class="light hidden" id="keys">Check against the answer key</button>
+      <div id="progress" class="hidden"><span class="note">Reading… large sets can take a few minutes.</span><ul id="steps"></ul></div>
+      <div id="keyResult" class="hidden"></div>
+      <input type="file" id="inPyret" accept=".pdf" class="hidden">
+      <input type="file" id="inClientsum" accept=".pdf,.docx" class="hidden">
+      <input type="file" id="inFiles" multiple class="hidden">
+      <input type="file" id="inFolder" webkitdirectory multiple class="hidden">
+    </div>
+  </div>
+  <p class="disclaimer">Internal preparer aid — runs in this browser tab only, nothing is uploaded. Contains client data:
+    internal use only. Federal only.</p>
+</div>
+
+<div id="result" class="hidden">
+  <div id="topbar" class="banner">
+    <button type="button" class="light small" id="newRun">← New run</button>
+    <span class="note">Browser version — preview (read only): changes are not saved; the other pages come later.</span>
+    <span class="note" id="took"></span>
+  </div>
+  <iframe id="page" title="Summary"></iframe>
+</div>
+<div id="toast" class="banner hidden"></div>
+
+<script type="module">
+const $ = id => document.getElementById(id);
+const show = (el, on = true) => el.classList.toggle("hidden", !on);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// what was picked. A document: {name, folder ("Client X/sub/" or "" for a single file), file, on}
+const PICK = { pyret: null, clientsum: null };      // File or null
+let DOCS = [];
+let KEYCASE = null;                                  // {folder, files: [{rel, file}]} - a folder that has an answer_key.xlsx
+let busy = false;
+// files that are never documents (the desktop's folder scan leaves the same ones out of sight)
+const SKIP = /^(~\$|\.)|\.(json|bak|tmp|lnk|ini)$|^(Thumbs\.db|answer_key\.xlsx)$/i;
+const same = (a, b) => a && b && a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+
+// ---------------------------------------------------------------- start-up: Python + libraries + the program, in a worker
+const worker = new Worker("worker.js", { type: "module" });
+function line(list, text) {
+  const ul = $(list);
+  for (const li of ul.children) li.classList.remove("now");
+  const li = document.createElement("li");
+  li.textContent = text;
+  li.className = "now";
+  ul.appendChild(li);
+  ul.scrollTop = ul.scrollHeight;
+}
+function fail(msg) {
+  busy = false;
+  $("error").textContent = msg;
+  show($("error"));
+  show($("progress"), false);
+  count();
+}
+worker.onerror = e => fail("The browser version couldn't start: " + (e.message || "see the browser console (F12)"));
+worker.onmessage = e => {
+  const m = e.data;
+  if (m.type === "load") line("loadSteps", m.msg);
+  else if (m.type === "ready") { show($("loading"), false); show($("pickCard")); }
+  else if (m.type === "step") line("steps", m.msg);
+  else if (m.type === "problem" || m.type === "error") fail(m.msg);
+  else if (m.type === "done") done(m);
+  else if (m.type === "keys") keysDone(m);
+};
+
+// ---------------------------------------------------------------- the two single files (prior-year return, summary)
+function setPick(id, file) {
+  PICK[id] = file || null;
+  $(id).value = file ? file.name : "";
+  show(document.querySelector(`[data-clear="${id}"]`), !!file);
+}
+for (const id of ["pyret", "clientsum"]) {
+  const input = $(id === "pyret" ? "inPyret" : "inClientsum");
+  document.querySelector(`[data-pick="${id}"]`).onclick = () => { input.value = ""; input.click(); };
+  input.onchange = () => { if (input.files[0]) setPick(id, input.files[0]); };
+  document.querySelector(`[data-clear="${id}"]`).onclick = () => setPick(id, null);
+}
+
+// ---------------------------------------------------------------- the documents: single files and / or folders
+const natural = s => s.toLowerCase().replace(/\d+/g, n => n.padStart(8, "0"));
+function addDocs(list) {            // [{name, folder, file}] - a file already in the list is not added twice
+  for (const d of list) {
+    if (SKIP.test(d.name)) continue;
+    if (!DOCS.some(x => x.folder === d.folder && same(x.file, d.file))) DOCS.push({ ...d, on: true });
+  }
+  draw();
+}
+function addFolder(top, files) {    // files: [{rel: "sub/name.pdf", file}]
+  if (files.some(f => f.rel === "answer_key.xlsx")) KEYCASE = { folder: top, files };
+  show($("keys"), !!KEYCASE);
+  addDocs(files.map(f => {
+    const name = f.rel.split("/").pop();
+    return { name, folder: top + "/" + f.rel.slice(0, f.rel.length - name.length), file: f.file };
+  }).sort((a, b) => natural(a.folder + a.name) < natural(b.folder + b.name) ? -1 : 1));
+}
+$("addFiles").onclick = () => { $("inFiles").value = ""; $("inFiles").click(); };
+$("inFiles").onchange = e => addDocs([...e.target.files].map(f => ({ name: f.name, folder: "", file: f })));
+async function walk(dir, prefix, out) {
+  for await (const [name, h] of dir.entries()) {
+    if (h.kind === "directory") await walk(h, prefix + name + "/", out);
+    else out.push({ rel: prefix + name, file: await h.getFile() });
+  }
+}
+$("addFolder").onclick = async () => {
+  if (!window.showDirectoryPicker) { $("inFolder").value = ""; return $("inFolder").click(); }
+  let dir;
+  try { dir = await window.showDirectoryPicker({ mode: "read" }); } catch (e) { return; }      // closed without choosing
+  const out = [];
+  await walk(dir, "", out);
+  addFolder(dir.name, out);
+};
+$("inFolder").onchange = e => {
+  const list = [...e.target.files];
+  if (list.length) addFolder(list[0].webkitRelativePath.split("/")[0],
+                             list.map(f => ({ rel: f.webkitRelativePath.split("/").slice(1).join("/"), file: f })));
+};
+function draw() {
+  $("docTable").innerHTML = DOCS.length
+    ? '<tr><th style="width:60px">Use</th><th>Document</th><th>Folder</th><th></th></tr>' + DOCS.map((d, i) =>
+      `<tr><td><input type="checkbox" data-i="${i}" class="use" ${d.on ? "checked" : ""}></td>
+       <td class="b">${esc(d.name)}</td><td class="note">${esc(d.folder)}</td>
+       <td><button type="button" class="light small del" data-i="${i}">✕</button></td></tr>`).join("")
+    : '<tr><td class="note">No documents yet.</td></tr>';
+  count();
+}
+function count() {
+  const on = DOCS.filter(d => d.on).length;
+  $("cnt").textContent = DOCS.length ? `${on} of ${DOCS.length} selected` : "";
+  $("go").disabled = busy;
+}
+$("docTable").onchange = e => { if (e.target.classList.contains("use")) { DOCS[+e.target.dataset.i].on = e.target.checked; count(); } };
+$("docTable").onclick = e => { if (e.target.classList.contains("del")) { DOCS.splice(+e.target.dataset.i, 1); draw(); } };
+window.u1040Test = { addFolder, addDocs, setPick };      // for automated checks only
+draw();
+
+// ---------------------------------------------------------------- Run check
+// where each picked file sits on the in-memory drive: a document under /client/docs/<its folder>/ (single files under
+// /client/docs/_files/); the prior-year return / summary use the document's own copy when the same file is in the list
+// (as on the desktop, where it is one file on disk), else /client/picked/
+const docPath = d => "/client/docs/" + (d.folder || "_files/") + d.name;
+function start(msg) {
+  busy = true;
+  count();
+  show($("error"), false);
+  show($("keyResult"), false);
+  $("steps").innerHTML = "";
+  show($("progress"));
+  worker.postMessage(msg);
+}
+$("go").onclick = () => {
+  if (busy) return;
+  const files = DOCS.filter(d => d.on).map(d => ({ path: docPath(d), file: d.file }));
+  const one = id => {
+    const f = PICK[id];
+    if (!f) return "";
+    const hit = DOCS.find(d => same(d.file, f));
+    const p = hit ? docPath(hit) : "/client/picked/" + id + "/" + f.name;
+    if (!files.some(x => x.path === p)) files.push({ path: p, file: f });
+    return p;
+  };
+  const pyret = one("pyret"), clientsum = one("clientsum");
+  start({ type: "run", files, pyret, clientsum, docs: DOCS.filter(d => d.on).map(docPath) });
+};
+// the page comes back as the desktop's own Summary template; inside the frame nothing is sent anywhere: a save answers
+// "ok" without saving, and a link to a page that isn't in the browser version yet says so
+const SHIM = `<script>(() => {
+  const f = window.fetch.bind(window);
+  window.fetch = (u, o) => (o && String(o.method || "").toUpperCase() === "POST")
+    ? Promise.resolve(new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } })) : f(u, o);
+  addEventListener("click", e => {
+    const a = e.target.closest && e.target.closest("a[href]");
+    const h = a && a.getAttribute("href");
+    if (!h || h.startsWith("#") || h.startsWith("javascript:")) return;
+    e.preventDefault(); e.stopPropagation();
+    parent.postMessage({ u1040: "nav", href: h }, "*");
+  }, true);
+})();<\/script>`;
+function done(m) {
+  busy = false;
+  show($("progress"), false);
+  $("page").srcdoc = m.html.replace("<head>", "<head>" + SHIM);
+  $("took").textContent = `Read in ${Math.round(m.seconds)} s`;
+  show($("start"), false);
+  show($("result"));
+  count();
+}
+$("newRun").onclick = () => { show($("result"), false); show($("start")); $("page").srcdoc = ""; };
+let toastT = 0;
+addEventListener("message", e => {
+  if (!e.data || e.data.u1040 !== "nav") return;
+  if (e.data.href === "/") return $("newRun").click();
+  $("toast").textContent = "Not in the browser version yet — this comes with the next phase.";
+  show($("toast"));
+  clearTimeout(toastT);
+  toastT = setTimeout(() => show($("toast"), false), 2600);
+});
+
+// ---------------------------------------------------------------- the test answer keys (a folder with answer_key.xlsx)
+$("keys").onclick = () => {
+  if (busy || !KEYCASE) return;
+  const base = "/client/" + KEYCASE.folder;
+  start({ type: "keycheck", folder: base, files: KEYCASE.files.map(f => ({ path: base + "/" + f.rel, file: f.file })) });
+};
+function keysDone(m) {
+  busy = false;
+  show($("progress"), false);
+  const r = m.result;
+  let h = `<div class="banner"><b>${r.ok ? "Same as the answer key" : "Different from the answer key"}</b> — ${esc(r.case)}, `
+        + `${Math.round(m.seconds)} s</div><table class="v"><tr><th>Sheet</th><th>Rows read</th><th>Checked in the key</th><th>Differences</th></tr>`;
+  for (const s of r.sheets) h += `<tr><td class="b">${esc(s.name)}</td><td>${s.rows}</td><td>${s.checked}</td><td>${s.differences.length}</td></tr>`;
+  h += "</table>";
+  const diffs = r.sheets.flatMap(s => s.differences.map(d => [s.name, ...d]));
+  if (diffs.length) {
+    h += '<table class="v"><tr><th>Sheet</th><th>What</th><th>File</th><th>Form #</th><th>Line</th><th>Key</th><th>Now</th></tr>'
+       + diffs.slice(0, 300).map(d => "<tr>" + d.map(v => `<td>${esc(v)}</td>`).join("") + "</tr>").join("") + "</table>";
+  }
+  $("keyResult").innerHTML = h;
+  show($("keyResult"));
+  count();
+}
+</script>
+</body>
+</html>

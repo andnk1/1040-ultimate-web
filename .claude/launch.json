@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web-app",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "web/serve.py",
+        "--no-browser",
+        "--port",
+        "5072"
+      ],
+      "port": 5072
+    }
+  ]
+}

@@ -1,0 +1,153 @@
+"""wip.py - the client's work in progress, saved as a JSON file in the client folder.
+
+Saved next to the Karbon letter (else the prior-year return; else a folder the preparer picks), as
+"1040 Ultimate WIP <year> - <client>.json". Autosaved on every change. The first save of a session keeps the
+file as it was as "<name>.bak", so one bad session can't wipe earlier work.
+Holds only the preparer's work + the file paths - the documents are read again when the client is opened.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+from datetime import datetime
+from pathlib import Path
+
+VERSION = 2                     # 2 = work keyed by the documents' fingerprints (core/docid.py), with the id table "fps"
+PATTERN = "1040 Ultimate WIP*.json"
+# run keys that are the preparer's work
+KEYS = ["edits", "added", "schc", "sche", "ut", "marks", "to_ai", "invstate", "comments", "checklist", "carry_added", "formview", "docnotes", "k1"]
+
+
+def client_name(form: dict, docs: list | None = None) -> str:
+    """The client folder's name (where the Karbon letter / prior-year return / documents sit)."""
+    for p in [form.get("karbon"), form.get("pyret"), form.get("clientsum"), form.get("utscreens")] + list(docs or []):
+        if p:
+            return Path(p).parent.name or "Client"
+    return "Client"
+
+
+def default_folder(form: dict) -> str | None:
+    for k in ("karbon", "pyret", "clientsum"):
+        if form.get(k):
+            return str(Path(form[k]).parent)
+    return None
+
+
+def find(folder: str | None) -> dict | None:
+    """The newest WIP file in a folder: {path, saved, client, file}."""
+    if not folder or not Path(folder).is_dir():
+        return None
+    hits = sorted(Path(folder).glob(PATTERN), key=lambda p: p.stat().st_mtime, reverse=True)
+    for p in hits:
+        try:
+            j = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        return dict(path=str(p), file=p.name, saved=j.get("saved", ""), client=j.get("client", ""))
+    return None
+
+
+def load(path: str) -> dict:
+    j = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(j, dict) or "form" not in j:
+        raise ValueError("not a 1040 Ultimate work-in-progress file")
+    return j
+
+
+def relink(paths: list, folder: str) -> tuple[list, list]:
+    """Documents that moved: look for the same file name under the WIP folder. Returns (paths, moved notes)."""
+    missing = [p for p in paths if p and not Path(p).is_file()]
+    if not missing or not folder or not Path(folder).is_dir():
+        return paths, []
+    names = {}
+    for root, dirs, files in os.walk(folder):
+        if root.count(os.sep) - folder.count(os.sep) > 3:
+            dirs[:] = []
+            continue
+        for f in files:
+            names.setdefault(f.lower(), os.path.join(root, f))
+    out, notes = [], []
+    for p in paths:
+        if p and not Path(p).is_file() and Path(p).name.lower() in names:
+            q = names[Path(p).name.lower()]
+            notes.append(f"{Path(p).name}: moved — found in {Path(q).parent}")
+            out.append(q)
+        else:
+            out.append(p)
+    return out, notes
+
+
+def snapshot(r: dict) -> dict:
+    from core.docid import fps, to_ai_out
+    return dict(app="1040 Ultimate", version=VERSION, saved=datetime.now().strftime("%Y-%m-%d %H:%M"),
+                client=r.get("client") or client_name(r["form"], r.get("docs")), cy_year=r.get("cy_year"),
+                form=r["form"], docs=r.get("doc_list") or [{"path": p, "on": True} for p in r.get("docs") or []],
+                cy_path=r.get("cy_path") or "", ut_path=r.get("ut_path") or "",
+                **dict({k: r.get(k) for k in KEYS}, to_ai=to_ai_out(r), fps=fps(r)))
+
+
+def save(r: dict) -> str | None:
+    """Writes the WIP file (if it has a place). Returns the path or None."""
+    path = r.get("wip_path")
+    if not path:
+        return None
+    p = Path(path)
+    if not r.get("wip_bak_done"):
+        if p.is_file():
+            try:
+                shutil.copy2(p, p.with_suffix(".bak"))
+            except OSError:
+                pass
+        r["wip_bak_done"] = True
+    tmp = p.with_suffix(".tmp")
+    try:
+        tmp.write_text(json.dumps(snapshot(r), indent=1, default=str), encoding="utf-8")
+        os.replace(tmp, p)
+    except OSError as e:
+        r["wip_error"] = f"Couldn't save the work in progress: {e}"
+        return None
+    r["wip_error"], r["wip_saved"] = None, datetime.now().strftime("%H:%M")
+    return str(p)
+
+
+# ---------------------------------------------------------------- the K-1 section's own work (next to the WIP file)
+def k1_path(wip_path: str | None) -> Path | None:
+    """'1040 Ultimate K-1 WIP <year> - <client>.json' beside the WIP file (its name doesn't start with "1040 Ultimate WIP",
+    so find() never takes it for the client's work in progress)."""
+    if not wip_path:
+        return None
+    p = Path(wip_path)
+    return p.with_name(p.name.replace("1040 Ultimate WIP", "1040 Ultimate K-1 WIP", 1))
+
+
+def load_k1(wip_path: str | None) -> dict | None:
+    p = k1_path(wip_path)
+    if not p or not p.is_file():
+        return None
+    try:
+        j = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return j if isinstance(j, dict) else None
+
+
+def save_k1(wip_path: str | None, files: list, state) -> str | None:
+    """The K-1 PDFs of the client's K-1 run + the K-1 page's work (statement amounts, ticks, comments, corrections)."""
+    p = k1_path(wip_path)
+    if not p:
+        return None
+    tmp = p.with_suffix(".tmp")
+    try:
+        tmp.write_text(json.dumps(dict(app="1040 Ultimate K-1", version=1, saved=datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                       files=list(files), state=state), indent=1, default=str), encoding="utf-8")
+        os.replace(tmp, p)
+    except OSError:
+        return None
+    return str(p)
+
+
+def new_path(folder: str, r: dict) -> str:
+    name = re.sub(r'[\\/:*?"<>|]+', " ", r.get("client") or "Client").strip()
+    return str(Path(folder) / f"1040 Ultimate WIP {r.get('cy_year') or ''} - {name}.json".replace("  ", " "))

@@ -1,0 +1,69 @@
+# 1040 Ultimate (browser app) - what never goes to GitHub.
+# Rule: no client documents, no real-data samples, no taxpayer information, no API key. When in doubt, leave it out.
+
+# ---- client documents and anything made from them (any folder)
+*.pdf
+*.PDF
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+*.docx
+*.doc
+*.msg
+*.eml
+*.png
+*.jpg
+*.jpeg
+*.tif
+*.tiff
+*.heic
+*.zip
+*.txt
+Return_Info/
+Claude_1040_skill/
+_work/
+# work in progress files (they hold amounts, names and SSN digits)
+1040 Ultimate WIP*.json
+1040 Ultimate K-1 WIP*.json
+*.bak
+
+# ---- test samples: real (masked) client documents and their answer keys - local only (back-up on Google Drive)
+tests/samples/
+tests/fixtures/
+tests/**/answer_key.xlsx
+
+# ---- AI: logs and any key
+AI_logs/
+.env
+.env.*
+*.key
+**/secrets*
+
+# ---- office / per-computer settings (firm EIN, folders)
+local_settings.json
+checklist_master.json
+
+# ---- data files the app needs: the K-1 code lists are public IRS / UltraTax codes (no client data) - kept
+!reference/*.csv
+
+# ---- downloaded libraries (web/get_vendor.py fetches them; about 40 MB)
+web/vendor/
+node_modules/
+
+# ---- reports of the check tools (they list file names of real PDFs)
+tools/web_check/compare_report.txt
+
+# ---- Python / editors
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# ---- screen mock-ups made from real K-1s (partnership names, EINs, partner digits) - local only
+design/*_mockup.html

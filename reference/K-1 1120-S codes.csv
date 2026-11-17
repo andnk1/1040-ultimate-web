@@ -1,0 +1,137 @@
+﻿Box,Box name,Code,IRS description
+10,Other income (loss),A,Other portfolio income (loss)
+10,Other income (loss),B,Involuntary conversions
+10,Other income (loss),C,Section 1256 contracts & straddles
+10,Other income (loss),D,Mining exploration costs recapture
+10,Other income (loss),E,Section 951A(a) income inclusions
+10,Other income (loss),F,Inclusions of subpart F income
+10,Other income (loss),G,Section 951(a)(1)(B) inclusions
+10,Other income (loss),I,"Gain (loss) from disposition of oil, gas, geothermal, or other mineral properties"
+10,Other income (loss),J,Recoveries of tax benefit items
+10,Other income (loss),K,Gambling gains and losses
+10,Other income (loss),M,Gain eligible for section 1045 rollover (replacement stock purchased by corporation)
+10,Other income (loss),N,Gain eligible for section 1045 rollover (replacement stock not purchased by corporation)
+10,Other income (loss),O,Sale or exchange of QSB stock with section 1202 exclusion
+10,Other income (loss),S,Non-portfolio capital gain (loss)
+10,Other income (loss),ZZ,Other income (loss)
+12,Other deductions,A,Cash contributions (60%)
+12,Other deductions,B,Cash contributions (30%)
+12,Other deductions,C,Noncash contributions (50%)
+12,Other deductions,D,Noncash contributions (30%)
+12,Other deductions,E,Capital gain property to a 50% organization (30%)
+12,Other deductions,F,Capital gain property (20%)
+12,Other deductions,G,Contributions (100%)
+12,Other deductions,H,Investment interest expense
+12,Other deductions,I,Deductions – royalty income
+12,Other deductions,J,Section 59(e)(2) expenditures
+12,Other deductions,L,Deductions – portfolio (other)
+12,Other deductions,M,Preproductive period expenses
+12,Other deductions,O,Reforestation expense deduction
+12,Other deductions,W,Soil and water conservation
+12,Other deductions,X,"Film, television, theatrical and qualified sound recording production expenditures"
+12,Other deductions,Y,Expenditures for removal of barriers
+12,Other deductions,Z,Itemized deductions
+12,Other deductions,AA,Contributions to a capital construction fund (CCF)
+12,Other deductions,AB,Penalty on early withdrawal of savings
+12,Other deductions,AC,Interest expense allocated to debt financed distributions
+12,Other deductions,ZZ,Other deductions
+13,Credits,A,Zero-emission nuclear power production credit
+13,Credits,B,Credit for production from advanced nuclear power facilities
+13,Credits,C,Low-income housing cr (sec 42(j)(5)) from post-2007 bldgs
+13,Credits,D,Low-income housing cr (other) from post-2007 bldgs
+13,Credits,E,Qualified rehabilitation expenditures (rental real estate)
+13,Credits,F,Other rental real estate credits
+13,Credits,G,Other rental credits
+13,Credits,H,Undistributed capital gains credit
+13,Credits,I,Biofuel producer credit
+13,Credits,J,Work opportunity credit
+13,Credits,K,Disabled access credit
+13,Credits,L,Empowerment zone employment credit
+13,Credits,M,Credit for increasing research activities
+13,Credits,N,Credit for employer social security and Medicare taxes
+13,Credits,O,Backup withholding
+13,Credits,P,Unused investment cr from qualifying advanced coal project cr or qualifying gasification project cr from cooperatives
+13,Credits,Q,Unused investment credit from qualifying advanced energy project cr from cooperatives
+13,Credits,R,Unused investment cr from advanced manufacturing investment cr from cooperatives
+13,Credits,S,Unused investment cr from clean electricity cr from cooperatives
+13,Credits,T,Unused investment cr from the energy cr from cooperatives
+13,Credits,U,Unused investment cr from the rehabilitation cr from cooperatives
+13,Credits,V,Advanced manufacturing production credit
+13,Credits,W,Clean electricity production credit
+13,Credits,X,Clean fuel production credit
+13,Credits,Y,Clean hydrogen production credit
+13,Credits,Z,Orphan drug credit
+13,Credits,AA,Enhanced oil recovery credit
+13,Credits,AB,Renewable electricity production credit
+13,Credits,AC,"Biodiesel, renewable diesel, or sustainable aviation fuels cr"
+13,Credits,AD,New markets credit
+13,Credits,AE,Credit for small employer pension plan startup costs
+13,Credits,AF,Credit for small employer auto-enrollment
+13,Credits,AG,Credit for military spouse participation
+13,Credits,AH,Credit for employer-provided childcare facilities and svc
+13,Credits,AI,Low sulfur diesel fuel production credit
+13,Credits,AJ,Qualified railroad track maintenance credit
+13,Credits,AK,Credit for oil and gas production from marginal wells
+13,Credits,AL,Distilled spirits credit
+13,Credits,AM,Energy efficient home credit
+13,Credits,AO,Alternative fuel vehicle refueling property credit
+13,Credits,AP,Clean renewable energy bond credit
+13,Credits,AQ,New clean renewable energy bond credit
+13,Credits,AR,Qualified energy conservation bond credit
+13,Credits,AS,Qualified zone academy bond credit
+13,Credits,AT,Qualified school construction bond credit
+13,Credits,AU,Build America bond credit
+13,Credits,AV,Credit for employer differential wage payments
+13,Credits,AW,Carbon oxide sequestration credit
+13,Credits,AX,Carbon oxide sequestration credit recapture
+13,Credits,AY,New clean vehicle credit
+13,Credits,AZ,Qualified commercial clean vehicle credit
+13,Credits,BA,Credit for small employer health insurance premiums
+13,Credits,BB,Employer credit for paid family and medical leave
+13,Credits,BC,Eligible credits from transferor(s) under section 6418
+13,Credits,ZZ,Other credits
+15,Alternative minimum tax (AMT) items,A,Post-1986 depreciation adjustment
+15,Alternative minimum tax (AMT) items,B,Adjusted gain or loss
+15,Alternative minimum tax (AMT) items,C,Depletion (other than oil & gas)
+15,Alternative minimum tax (AMT) items,D,"Oil, gas, & geothermal – gross income"
+15,Alternative minimum tax (AMT) items,E,"Oil, gas, & geothermal – deductions"
+15,Alternative minimum tax (AMT) items,F,Other AMT items
+16,Items affecting shareholder basis,A,Tax-exempt interest income
+16,Items affecting shareholder basis,B,Other tax-exempt income
+16,Items affecting shareholder basis,C,Nondeductible expenses
+16,Items affecting shareholder basis,D,Distributions
+16,Items affecting shareholder basis,E,Repayment of loans from shareholders
+16,Items affecting shareholder basis,F,Foreign taxes paid or accrued
+17,Other information,A,Investment income
+17,Other information,B,Investment expenses
+17,Other information,C,Qualified rehabilitation expenditures (other than RRE)
+17,Other information,D,Basis of energy property
+17,Other information,E,Recap of low-income housing cr (sec 42(j)(5))
+17,Other information,F,Recap of low-income housing cr (other)
+17,Other information,G,Recapture of investment credit
+17,Other information,H,Recapture of other credits
+17,Other information,I,Look-back interest – completed long-term contracts
+17,Other information,J,Look-back interest – income forecast method
+17,Other information,K,Dispositions of property with section 179 deductions
+17,Other information,L,Recapture of section 179 deduction
+17,Other information,M,Section 453(l)(3) information
+17,Other information,N,Section 453A(c) information
+17,Other information,O,Section 1260(b) information
+17,Other information,P,Interest allocable to production expenditures
+17,Other information,Q,Capital construction fund (CCF) nonqualified withdrawals
+17,Other information,R,Depletion information - oil and gas
+17,Other information,U,Net investment income
+17,Other information,V,Section 199A information
+17,Other information,AA,Excess taxable income
+17,Other information,AB,Excess business interest income
+17,Other information,AC,Gross receipts for section 448(c)
+17,Other information,AJ,Excess business loss limitation
+17,Other information,AN,Farming and fishing income
+17,Other information,AP,Inversion gain
+17,Other information,AS,Qualifying advanced coal project property and qualifying gasification project property
+17,Other information,AT,Qualifying advanced energy project property
+17,Other information,AU,Advanced manufacturing investment property
+17,Other information,AV,Clean electricity investment property
+17,Other information,AW,Reportable transactions
+17,Other information,BA,Domestic research and experimental expenditures
+17,Other information,ZZ,Other information
