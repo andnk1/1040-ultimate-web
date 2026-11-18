@@ -505,6 +505,31 @@ def _scenario():
     return scenario
 
 
+def _more_after_edits(r: dict, sc) -> dict:
+    """Step 3: the rest of the Summary's saves (form tabs, UT summary, Schedule C with a P&L, Schedule E), every download,
+    then the K-1 box's Remove - what the archive check compares as "summary_more"."""
+    import tempfile
+    import core.wip as wip_mod
+    from core import runcheck
+
+    def post(url, body):
+        reply = page("POST", url.format(token=r["token"]), body)
+        assert reply["status"] == 200, (url, reply)
+        return reply["body"]
+
+    def get(url):
+        reply = page("GET", url.format(token=r["token"]))
+        assert reply["status"] == 200 and reply["kind"] == "file", (url, reply.get("body"))
+        return reply["filename"], reply["body"]
+    pl = Path(tempfile.mkdtemp(prefix="u1040_pl_")) / "Demo P&L.csv"
+    pl.write_text(sc.PL_CSV, encoding="utf-8")
+    sc.more_edits(r, post, str(pl))
+    dl = sc.downloads(r, get)
+    post("/k1/{token}/remove", {})
+    inc, ded = runcheck.summaries(r)
+    return dict(summary_more=sc.normalize(dict(work=wip_mod.snapshot(r), income=inc, deductions=ded, downloads=dl)))
+
+
 def pages_after_edits(case: Path, roles: dict, r: dict) -> dict:
     """The Summary's saves (tools/parity/scenario.py) through this app's pages, then the saved work opened again - what the
     archive check compares with the archive doing the same."""
@@ -520,6 +545,8 @@ def pages_after_edits(case: Path, roles: dict, r: dict) -> dict:
     snap = wip_mod.snapshot(r)
     inc, ded = runcheck.summaries(r)
     out = dict(summary_edits=sc.normalize(dict(work=snap, income=inc, deductions=ded)))
+    out.update(_more_after_edits(r, sc))
+    snap = wip_mod.snapshot(r)                           # the work as it is now (after step 3) is what gets reopened
     wp = Path(tempfile.mkdtemp(prefix="u1040_wip_")) / "1040 Ultimate WIP test.json"
     wp.write_text(json.dumps(snap, default=str), encoding="utf-8")
     pick = lambda role: next((str(case / n) for n, x in roles.items() if x == role and (case / n).is_file()), "")

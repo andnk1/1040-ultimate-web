@@ -158,6 +158,24 @@ section titles — written for the desktop app: its rules stay, its desktop deta
     Lady to try.)
   - Tests: 32 pass, 18 wait for the K-1 pages, `test_cases_found` fails as before. `test_docid.py` (4) back - work keyed by fingerprints: an older work file converted, a renamed / re-saved / replaced
     document.
+- **2026-11-17 — step 3 built: the rest of the Summary** (Lady: "next step"):
+  - Moved unchanged from the archive's app.py into `web\py\pages\summary.py`: the form tabs' corrections (W2, 1098-M), the
+    UT summary's typed fields, the Schedule C box (save, **Add P&L…**, the three CSV downloads), the Schedule E box (save,
+    **Import Schedule E sheet…**, a property's workpaper CSV), **Income and Deduction Summary (Excel)**, the K-1 box's
+    **Remove**. All saved into the work in progress after each change, as before. The whole Summary page now works.
+  - **Picking a file on a page** (Add P&L…, Import Schedule E sheet…): the desktop opened a Windows file window and sent the
+    path; now the browser's file window opens, the page copies the file onto the in-memory drive and answers its path there
+    (`web\index.html` browseFile, worker `putfile`) - `static\schc.js` / `static\sche.js` are unchanged.
+  - **Downloads** (Excel, CSV) are made in the tab and saved by the browser as a normal download.
+  - Links with their own click code (save first, then download - e.g. the Excel button) run that code first; the frame's
+    shim now steps in only for plain links.
+  - **Proven against the archive** (`tools\parity\scenario.py` `more_edits` + `downloads`): a W-2 box 1 correction on the form
+    tab, UT summary fields, a Schedule C business with a made-up P&L read by Add P&L…, a Schedule E property, every download
+    (the Excel cell by cell, the Schedule E templates, the three Schedule C CSVs, the Schedule E workpaper - exactly), then
+    the K-1 box's Remove: the saved work, the summaries and the downloads are **the same as python-final on both sample
+    clients**, and again after the saved work is reopened (this computer).
+  - Tried in the browser: Add P&L… (the file copied into the tab) → 3 accounts, net 48,500 → Calculate → 48,500 on the income
+    summary (page redrawn); the Excel button and a Schedule C CSV download. Chrome's own file window is for Lady to try.
 - **Phase 1 built (2026-11-16, in the old folder):**
   - `core\pdfengine.py` is the one PDF door: nothing else in `core\` imports PyMuPDF (`pdfutil.py`, `utscreens.py`,
     `ai\docs.py`, `k1v\ut_entry.py` go through it). Its header lists what the browser stand-in (MuPDF.js) must cover.

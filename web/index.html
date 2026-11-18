@@ -275,6 +275,7 @@ async function saveFile(path, bytes) {
   }
 }
 function download(bytes, name, mime) {
+  window.u1040Test.downloads.push({ name, size: bytes.byteLength || bytes.length });   // (for automated checks)
   const url = URL.createObjectURL(new Blob([bytes], { type: mime || "application/octet-stream" }));
   const a = Object.assign(document.createElement("a"), { href: url, download: name });
   document.body.appendChild(a); a.click(); a.remove();
@@ -379,16 +380,18 @@ const SHIM = `<script>(() => {
   const own = u => typeof u === "string" && u.startsWith("/") && !u.startsWith("/static/");
   const f = window.fetch.bind(window);
   window.fetch = (u, o) => own(u) ? parent.u1040.fetch(u, o || {}) : f(u, o);
+  // a link: after the page's own click code (a link that saves first and then calls goTo() has already said so with
+  // preventDefault - it is left alone); otherwise the address goes to the app instead of the server
   addEventListener("click", e => {
     const a = e.target.closest && e.target.closest("a[href]");
     const h = a && a.getAttribute("href");
-    if (!own(h)) return;
-    e.preventDefault(); e.stopPropagation();
+    if (!own(h) || e.defaultPrevented) { if (own(h)) e.preventDefault(); return; }
+    e.preventDefault();
     parent.u1040.go(h);
-  }, true);
+  });
   addEventListener("submit", e => { e.preventDefault(); parent.u1040.toast("Not in the browser app yet."); }, true);
   window.reloadPage = () => parent.u1040.reload();    // the templates call these where the desktop reloaded / navigated
-  window.goTo = url => parent.u1040.go(url);
+  window.goTo = url => { const u = new URL(url, location.href); parent.u1040.go(u.pathname + u.search); };
 })();<\/script>`;
 let currentUrl = "";
 function showPage(html, url, reloaded) {
@@ -413,6 +416,7 @@ window.u1040 = {
   // a save or a data request from the page's script -> a Response, as fetch() gives
   async fetch(url, opts) {
     const method = (opts.method || "GET").toUpperCase();
+    if (url.startsWith("/browse?")) return Response.json(await browseFile(new URLSearchParams(url.slice(8)).get("kind")));
     let body = typeof opts.body === "string" ? opts.body : "";
     if (method === "POST" && /^\/wip\/[0-9a-f]+\/folder$/.test(url)) body = JSON.stringify(await chooseFolder());
     const r = await ask({ type: "request", method, url, body });
@@ -438,6 +442,26 @@ window.u1040 = {
     toast(r.kind === "error" ? "Something went wrong: " + r.body : "Not in the browser app yet.");
   },
 };
+// Browse… on a page (Add P&L…, Import Schedule E sheet…): the desktop opened a Windows file window and sent the file's path.
+// Here the browser's file window opens; the picked file is copied onto the in-memory drive and its path there is answered,
+// so the page's code (static/schc.js, static/sche.js) goes on as before. Nothing leaves the computer.
+const BROWSE_TYPES = { pl: ".csv,.xlsx,.xlsm,.pdf", sheet: ".xlsx,.csv" };
+let uploads = 0;
+function browseFile(kind) {
+  return new Promise(resolve => {
+    const input = Object.assign(document.createElement("input"), { type: "file", accept: BROWSE_TYPES[kind] || "" });
+    input.onchange = async () => {
+      const f = input.files[0];
+      if (!f) return resolve({ paths: [], path: "" });
+      const path = `/client/picked/upload/${++uploads}/${f.name}`;
+      await ask({ type: "putfile", path, file: f });
+      resolve({ paths: [path], path });
+    };
+    input.oncancel = () => resolve({ paths: [], path: "" });
+    input.click();
+  });
+}
+
 // "Choose a folder…" (the Summary, when there is no folder to save the work in): Chrome's folder window, with write access
 let saveFolders = 0;
 async function chooseFolder() {
@@ -479,7 +503,8 @@ function keysDone(m) {
   show($("keyResult"));
   count();
 }
-Object.assign(window.u1040Test, { saveFile, addPlace, places: () => PLACES.map(p => p.place), probeLimit: 0 });
+Object.assign(window.u1040Test, { saveFile, addPlace, places: () => PLACES.map(p => p.place), probeLimit: 0,
+  putFile: (path, file) => ask({ type: "putfile", path, file }), downloads: [] });
 </script>
 </body>
 </html>

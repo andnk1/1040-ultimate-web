@@ -6,6 +6,7 @@
 //     {type: "run", files: [{path, file}], pyret, clientsum, wip, docs, stuck, writable}   Run check, then the Summary page
 //     {type: "request", id, method, url, body}    one address of a page (a link, a save, a download) - web/py/routes.py
 //     {type: "call", id, fn, args}                one of the start's helpers in web/py/webapp.py (passwords, stuck text)
+//     {type: "putfile", id, path, file}           a file picked on a page, copied onto the in-memory drive
 //     {type: "keycheck" | "archivecheck", files, folder}   the test checks (web/py/keycheck.py)
 //   worker -> page
 //     load (start-up step) / ready / step (Run check progress) / done {token, page, seconds} / reply {id, ...} /
@@ -101,6 +102,11 @@ onmessage = async e => {
     const t0 = performance.now();
     if (m.type === "request") return request(m);
     if (m.type === "call") return call(m);
+    if (m.type === "putfile") {                      // a file picked on a page (a P&L, a Schedule E sheet) -> the in-memory drive
+      py.FS.mkdirTree(m.path.slice(0, m.path.lastIndexOf("/")));
+      py.FS.writeFile(m.path, new Uint8Array(await m.file.arrayBuffer()));
+      return say("reply", { id: m.id, kind: "value", body: m.path });
+    }
     if (m.type === "run") {
       await copyFiles(m.files);
       const out = await runPython(`

@@ -59,6 +59,27 @@ snap = wip_mod.snapshot(r)
 inc, ded = app._summaries(r)
 out["pages"]["summary_edits"] = scenario.normalize(dict(work=snap, income=inc, deductions=ded))
 
+# step 3: the rest of the Summary's saves, then every download
+def post(url, body):
+    resp = c.post(url.format(token=r["token"]), json=body)
+    assert resp.status_code == 200, (url, resp.status_code)
+    return resp.get_json()
+
+def get(url):
+    resp = c.get(url.format(token=r["token"]))
+    assert resp.status_code == 200, (url, resp.status_code)
+    name = re.search(r'filename="?([^";]+)"?', resp.headers.get("Content-Disposition", "")).group(1)
+    return name, resp.data
+
+pl = Path(tempfile.mkdtemp()) / "Demo P&L.csv"
+pl.write_text(scenario.PL_CSV, encoding="utf-8")
+scenario.more_edits(r, post, str(pl))
+dl = scenario.downloads(r, get)
+post("/k1/{token}/remove", {})
+inc, ded = app._summaries(r)
+snap = wip_mod.snapshot(r)
+out["pages"]["summary_more"] = scenario.normalize(dict(work=snap, income=inc, deductions=ded, downloads=dl))
+
 # the saved work opened again (Continue where you left off)
 wp = Path(tempfile.mkdtemp()) / "1040 Ultimate WIP test.json"
 wp.write_text(json.dumps(snap, default=str), encoding="utf-8")

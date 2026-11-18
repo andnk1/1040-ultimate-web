@@ -4,8 +4,8 @@ Internal return-review tool. Runs in the browser (Chrome / Edge): the client's d
 never uploaded anywhere. Contains client data: internal use only. Federal only.
 
 The desktop version (local Python server, `run.bat`) is retired (2026-11-17); its last code is the git tag `python-final` in the
-old repository `1040_ultimate`. **Status:** the first page, the work in progress and the Summary's corrections, ticks, comments
-and Document inventory work; the other screens described below are converted one at a time (`design\conversion_plan.md`). The screens are described as the desktop app had them — that
+old repository `1040_ultimate`. **Status:** the first page, the work in progress and the whole Summary page work (saves, form
+tabs, UT summary, Schedule C / E, downloads); the other screens described below are converted one at a time (`design\conversion_plan.md`). The screens are described as the desktop app had them — that
 is what each converted page must match.
 
 ## Start (Windows)

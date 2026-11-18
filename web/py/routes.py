@@ -42,11 +42,22 @@ ROUTES = [
     ("POST", "/toai/<token>",                       summary.save_toai),           # the AI ticks
     ("POST", "/wip/<token>/save",                   summary.wip_save),            # Save work in progress (button)
     ("POST", "/wip/<token>/folder",                 summary.wip_folder),          # Choose a folder… (no folder to save in)
+    ("POST", "/formview/<token>/<form>",            summary.save_formview),       # form tabs (W2, 1098-M): corrections
+    ("POST", "/ut/<token>",                         summary.save_ut),             # UT summary: fields typed over
+    ("POST", "/schc/<token>",                       summary.save_schc),           # Schedule C box
+    ("POST", "/pl/<token>",                         summary.load_pl),             # Schedule C box → Add P&L…
+    ("GET",  "/schc/<token>/<i>/<which>.csv",       summary.schedule_c_csv),      # Schedule C box → the three downloads
+    ("POST", "/sche/<token>",                       summary.save_sche),           # Schedule E box
+    ("POST", "/sche/<token>/import",                summary.import_schedule_e),   # Schedule E box → Import Schedule E sheet…
+    ("GET",  "/sche/<token>/<i>/workpaper.csv",     summary.schedule_e_csv),      # Schedule E box → a property's workpaper
+    ("GET",  "/income/<token>/excel",               summary.income_excel),        # Income and Deduction Summary (Excel)
+    ("POST", "/k1/<token>/remove",                  summary.k1_remove),           # K-1 box → Remove
 ]
 
 # after these saves the work in progress is saved (the desktop app did the same after every change)
 AUTOSAVE = {summary.save_edits, summary.confirm_edit, summary.save_added, summary.save_carry_added, summary.save_comments,
-            summary.save_marks, summary.save_inventory, summary.save_invnote, summary.save_toai}
+            summary.save_marks, summary.save_inventory, summary.save_invnote, summary.save_toai, summary.save_formview,
+            summary.save_ut, summary.save_schc, summary.save_sche, summary.k1_remove}
 
 
 def _pattern(address: str) -> re.Pattern:

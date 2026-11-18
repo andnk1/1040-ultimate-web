@@ -2,24 +2,34 @@
 
 The saves below are the desktop app's, unchanged in what they keep (moved from its app.py): each takes the run's token and
 what the page sent (`sent`), changes the run, and answers {"ok": true}. After each one the work in progress is saved
-(web/py/routes.py, AUTOSAVE). Not converted yet: Schedule C / E, the form tabs, the UT summary, Excel (next step).
+(web/py/routes.py, AUTOSAVE). The downloads (Excel, CSV) answer a file; the page saves it as a download.
+A file the preparer picks on the page (a P&L, a Schedule E sheet) is first copied onto the tab's in-memory drive by the page
+(web/index.html, "Browse"): the functions get its path there, as the desktop got a path on the disk.
 """
 from __future__ import annotations
 
 import io
 import json
 
+import csv
+import re
 from datetime import datetime
 from pathlib import Path
 
 from core import runcheck
 from core.inventory import ROUTE_LBL
-from core.pl import MAP_LINES as PL_MAP_LINES
+from core.pl import MAP_LINES as PL_MAP_LINES, book_tax_csv, other_expenses_csv, read_pl, workpaper_csv
 from core.py_return import SCHC_LINES, SCHE_LINES
 
-from . import data, file, get_run, page, render, save_work
+from . import NotFound, data, file, get_run, page, render, save_work
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+CSV = "text/csv"
+
+
+def _safe_name(name: str) -> str:
+    """A name that can be a file name (no \\ / : * ? " < > |)."""
+    return re.sub(r'[\\/:*?"<>|]+', " ", name).strip()
 
 
 def show(token: str):
@@ -187,3 +197,136 @@ def _shown_folder(path: str) -> str:
         if parts[:3] == lead:
             return "/".join(parts[3:]) or parts[-1]
     return str(Path(path).parent)
+
+
+# ---------------------------------------------------------------- form tabs (W2, 1098-M) and the UT summary
+def save_formview(token: str, form: str, sent: dict):
+    """Form view corrections: {"<doc id>#<form index>": {row key: value}} - the whole form's set (parsed values stay as read)."""
+    r = get_run(token)
+    if not isinstance(r.get("formview"), dict):
+        r["formview"] = {}
+    r["formview"][form] = {k: v for k, v in (sent or {}).items() if isinstance(v, dict) and v}
+    return data({"ok": True})
+
+
+def save_ut(token: str, sent: dict):
+    """UT summary fields typed over: {field: value}."""
+    get_run(token)["ut"] = sent or {}
+    return data({"ok": True})
+
+
+# ---------------------------------------------------------------- Schedule C box
+def save_schc(token: str, sent: list):
+    """The Schedule C box: every business (lines, the P&L read, totals; "calculated" = moved to the income summary)."""
+    get_run(token)["schc"] = sent or []
+    return data({"ok": True})
+
+
+def load_pl(token: str, sent: dict):
+    """Add P&L…: reads a P&L (CSV / Excel / PDF) for the Schedule C box: accounts, suggested lines, total check."""
+    get_run(token)
+    path = (sent or {}).get("path", "")
+    if not path or not Path(path).is_file():
+        return data(dict(file=Path(path).name if path else "", rows=[], error="File not found."))
+    return data(read_pl(path))
+
+
+def schedule_c_csv(token: str, i: str, which: str):
+    """The Schedule C box's downloads for business i: workpaper / other expenses (Part V, line 27b) / books vs Schedule C."""
+    r = get_run(token)
+    i = int(i)
+    bz = r.get("schc") or []
+    if i >= len(bz):
+        raise NotFound("That business isn't in the Schedule C box.")
+    b = bz[i]
+    rows = ((b.get("pl") or {}).get("rows")) or []
+    for x in rows:
+        x["amount"] = float(x.get("amount") or 0)
+    lines = {}                                         # each Schedule C line's amount from the P&L accounts mapped to it
+    for x in rows:
+        inc_side = x["section"] in ("income", "other_income")
+        sign = 1 if inc_side == (x["line"] in ("1", "6")) else -1
+        lines[x["line"]] = lines.get(x["line"], 0) + (x["amount"] if x["line"] in ("nd", "x") else sign * x["amount"])
+    name = _safe_name(b.get("name") or f"Business {i + 1}")
+    if which == "workpaper":
+        content, fn = workpaper_csv(b, lines, b.get("final") or {}), f"{name} - Schedule C workpaper.csv"
+    elif which == "other_expenses":
+        content, fn = other_expenses_csv(rows), f"{name} - Schedule C other expenses.csv"
+    elif which == "book_tax":
+        content, fn = book_tax_csv(rows), f"{name} - books vs Schedule C.csv"
+    else:
+        raise NotFound("No such download.")
+    return file(content.encode("utf-8") if isinstance(content, str) else content, fn, CSV)
+
+
+# ---------------------------------------------------------------- Schedule E box
+def save_sche(token: str, sent: list):
+    """The Schedule E box: every property (lines, days, totals; "calculated" = moved to the income summary)."""
+    get_run(token)["sche"] = sent or []
+    return data({"ok": True})
+
+
+def import_schedule_e(token: str, sent: dict):
+    """Import Schedule E sheet…: reads a filled Schedule E sheet (the standard template, .xlsx or .csv) -> properties."""
+    from core.sche_template import read_template
+    get_run(token)
+    path = ((sent or {}).get("path") or "").strip().strip('"')
+    if not path or not Path(path).is_file():
+        return data(dict(error="File not found."))
+    try:
+        res = read_template(path)
+    except Exception as e:  # noqa: BLE001 - a sheet that can't be read: say why, as the desktop did
+        return data(dict(error=f"Couldn't read {Path(path).name}: {type(e).__name__}: {e}"))
+    if not res["properties"]:
+        return data(dict(error="; ".join(res["errors"]) or "No properties in the sheet."))
+    return data(dict(file=Path(path).name, properties=res["properties"], errors=res["errors"]))
+
+
+def schedule_e_csv(token: str, i: str):
+    """A property's workpaper (CSV): last year and this year line by line, and what goes to the income summary."""
+    r = get_run(token)
+    i = int(i)
+    props = r.get("sche") or []
+    if i >= len(props):
+        raise NotFound("That property isn't in the Schedule E box.")
+    p = props[i]
+    t = p.get("totals") or {}
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    info = p.get("info") or {}
+    w.writerow(["Schedule E workpaper", p.get("name") or f"Property {i + 1}"])
+    w.writerow(["Type", info.get("type", ""), "Fair rental days", info.get("fair_days") or "", "Personal use days",
+                info.get("personal_days") or ""])
+    w.writerow([])
+    w.writerow(["Line", "Description", "Last year", "This year"])
+
+    def n(x):
+        try:
+            return f"{float(str(x).replace(',', '')):.2f}"
+        except (TypeError, ValueError):
+            return ""
+    for k, lbl in SCHE_LINES.items():
+        if k == "19" and info.get("other_desc"):
+            lbl += " — " + info["other_desc"]
+        cy = t.get(k) if k in ("20", "21") else (p.get("cy") or {}).get(k)
+        w.writerow([k, lbl, n((p.get("py") or {}).get(k)), n(cy)])
+    w.writerow(["", "To the income summary", "", n(t.get("net"))])
+    name = _safe_name(p.get("name") or f"Property {i + 1}")
+    return file(buf.getvalue().encode("utf-8"), f"{name} - Schedule E workpaper.csv", CSV)
+
+
+# ---------------------------------------------------------------- Excel and the K-1 box
+def income_excel(token: str):
+    """Income and Deduction Summary (Excel): both tables (corrected amounts, per document, comments) + the Documents sheet."""
+    from core.excel import income_xlsx
+    r = get_run(token)
+    inc, ded = runcheck.summaries(r)
+    name = r.get("client") or "Client"
+    content = income_xlsx(inc, name, ded, runcheck.inventory_export(r))
+    return file(content, f"Income Summary {inc['cy_year'] or ''} - {name}.xlsx", XLSX)
+
+
+def k1_remove(token: str, sent: dict | None = None):
+    """The K-1 box's Remove: the K-1 lines leave the income summary (the K-1 section's own work stays)."""
+    get_run(token)["k1"] = None
+    return data({"ok": True})

@@ -49,6 +49,51 @@ def edits(r: dict, inc: dict, ded: dict) -> list:
     return out
 
 
+# ---------------------------------------------------------------- step 3: the rest of the Summary
+# A made-up P&L (no client data) for the Schedule C box's Add P&L…
+PL_CSV = ("Demo Business LLC\nProfit and Loss\n,Total\nIncome,\nSales,50000.00\nTotal Income,50000.00\nExpenses,\n"
+          "Advertising,1200.00\nOffice supplies,300.00\nTotal Expenses,1500.00\nNet Income,48500.00\n")
+
+
+def more_edits(r: dict, post, pl_path: str) -> None:
+    """Step 3's saves, through post(address, what the page sends) -> the reply's data. pl_path = PL_CSV written to a file.
+    Form tab correction (W-2 box 1), a UT summary field, the Schedule C box with a P&L read by Add P&L…, the Schedule E box."""
+    w2 = [d for d in r["inv"]["docs"] if d.get("family") == "w2"]
+    if w2:
+        post("/formview/{token}/w2", {f"{w2[0]['did']}#0": {"b1": 12345.67}})
+    post("/ut/{token}", {"agi": "100000", "fs": "MFJ"})
+    pl = post("/pl/{token}", {"path": pl_path})
+    biz = {"name": "", "py": None, "cy": {"1": "50000", "8": "1200", "18": "300"}, "pl": pl, "calculated": True,
+           "totals": {"31": 48500}, "final": {"1": 50000, "8": 1200, "18": 300}, "total_only": None}
+    post("/schc/{token}", list(r.get("schc") or []) + [biz])
+    prop = {"name": "1 Test Street", "py": None, "cy": {"3": "24000", "9": "3000"}, "info": {"type": "1", "fair_days": 365},
+            "calculated": True, "totals": {"20": 3000, "21": 21000, "net": 21000}}
+    post("/sche/{token}", list(r.get("sche") or []) + [prop])
+
+
+def downloads(r: dict, get) -> dict:
+    """Every download of the Summary through get(address) -> (file name, bytes), made comparable: an Excel file as its
+    cells (sheet by sheet), a CSV as its text."""
+    n_biz, n_prop = len(r.get("schc") or []), len(r.get("sche") or [])
+    addresses = ["/income/{token}/excel", "/sche/{token}/template.xlsx", "/sche/template.xlsx"]
+    addresses += [f"/schc/{{token}}/{n_biz - 1}/{w}.csv" for w in ("workpaper", "other_expenses", "book_tax")] if n_biz else []
+    addresses += [f"/sche/{{token}}/{n_prop - 1}/workpaper.csv"] if n_prop else []
+    out = {}
+    for a in addresses:
+        name, content = get(a)
+        out[a.replace("{token}", "<run>")] = dict(file=name, content=_cells(content) if name.endswith(".xlsx")
+                                                  else content.decode("utf-8").replace("\r\n", "\n"))
+    return out
+
+
+def _cells(xlsx: bytes) -> dict:
+    """An Excel file's cell values, sheet by sheet (what the preparer sees - not the file's bytes, which hold its time)."""
+    import io
+    from openpyxl import load_workbook
+    wb = load_workbook(io.BytesIO(xlsx))
+    return {ws.title: [[c for c in row] for row in ws.iter_rows(values_only=True)] for ws in wb.worksheets}
+
+
 # ---------------------------------------------------------------- what is compared
 _PATHISH = re.compile(r"^(?:[A-Za-z]:[\\/]|/|\\\\).+")
 _CLOCK = re.compile(r"\d{4}-\d\d-\d\d \d\d:\d\d(:\d\d)?")      # "2026-11-17 17:19" - a time stamp
