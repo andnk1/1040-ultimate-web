@@ -132,6 +132,13 @@ summary ticks; (h) Income and Deduction Summary (Excel); (i) K-1 box Remove.
 5. **6 → 7 → 8** — the K-1 pages.
 6. **3** — AI Doc Review, after the key decision.
 
+## Intended differences from the archive (decided by Lady after python-final)
+- 2026-11-17 — the Income and Deduction Summary (and its Excel) shows a document's name only, without the issuer in front
+  (brief_2026-11-17, item 2). The archive check and the answer keys translate the old label before comparing
+  (`tests\harness.py` `label_changes`).
+- 2026-11-17 — each summary row carries the page its amount was read on (`src_path` / `src_page`, the name's link) — new,
+  the archive has no such field: the check leaves those two fields out (`tools\parity\scenario.py` `normalize`).
+
 ## How a page is proven ("same results as python-final")
 - **The reference:** a clean copy of the archive (`git archive python-final`, in a temporary folder — the old repository is
   not touched) runs each sample client through the archive's own code and writes its results (the three answer-key sheets, plus

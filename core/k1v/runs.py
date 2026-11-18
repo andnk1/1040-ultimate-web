@@ -16,6 +16,7 @@ from . import prep
 from .k1_parser import parse_pdf
 from .screen_parser import parse_screens
 from .screen_verify import verify_screens
+from ..readcache import remember
 
 RUNS: dict = {}          # token -> {"k1s", "k1name", "files", "owner", "state", "scr", "scrname", "result", "manual", "flags", "n1065", "n1120"}
 
@@ -48,7 +49,7 @@ def read_k1_files(files, pw: str = ""):
         got, err = None, None
         for cand in dict.fromkeys([_name_password(name), pw, *password_candidates(Path(name)), ""]):
             try:
-                got = parse_pdf(str(path), password=cand)
+                got = remember("K-1s", path, lambda: parse_pdf(str(path), password=cand), cand)   # (read once - core/readcache.py)
                 break
             except Exception as e1:  # noqa: BLE001
                 err = e1

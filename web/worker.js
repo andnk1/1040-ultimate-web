@@ -7,6 +7,8 @@
 //     {type: "request", id, method, url, body}    one address of a page (a link, a save, a download) - web/py/routes.py
 //     {type: "call", id, fn, args}                one of the start's helpers in web/py/webapp.py (passwords, stuck text)
 //     {type: "putfile", id, path, file}           a file picked on a page, copied onto the in-memory drive
+//     {type: "addmore", id, token, files, docs, stuck}   Add more documents…: the new files copied (nothing wiped), the run
+//                                                 read again with every document, the work put back (webapp.add_documents)
 //     {type: "keycheck" | "archivecheck", files, folder}   the test checks (web/py/keycheck.py)
 //   worker -> page
 //     load (start-up step) / ready / step (Run check progress) / done {token, page, seconds} / reply {id, ...} /
@@ -124,6 +126,22 @@ _out
       const res = JSON.parse(out);
       if (res.problem) say("problem", { msg: res.problem });
       else say("done", { token: res.token, page: res.page, seconds: (performance.now() - t0) / 1000 });
+    } else if (m.type === "addmore") {
+      for (const f of m.files) {                     // only the new files - the ones already there stay (no wipe)
+        py.FS.mkdirTree(f.path.slice(0, f.path.lastIndexOf("/")));
+        py.FS.writeFile(f.path, new Uint8Array(await f.file.arrayBuffer()));
+      }
+      const out = await runPython(`
+import json, webapp, webhost, routes
+from core.runcheck import Problem
+try:
+    _token = webapp.add_documents(ARGS["token"], list(ARGS["docs"]), webhost.step, stuck=list(ARGS["stuck"]))
+    _out = json.dumps(dict(token=_token, page=routes.handle("GET", "/summary/" + _token)["body"]))
+except Problem as _e:
+    _out = json.dumps(dict(problem=str(_e)))
+_out
+`, { token: m.token, docs: m.docs, stuck: m.stuck || [] });
+      say("reply", { id: m.id, kind: "value", body: JSON.parse(out), seconds: (performance.now() - t0) / 1000 });
     } else if (m.type === "keycheck" || m.type === "archivecheck") {
       await copyFiles(m.files);
       const fn = m.type === "keycheck" ? "check" : "check_archive";

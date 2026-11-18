@@ -45,8 +45,19 @@ NOTES = {
 
 
 def _disp(d) -> str:
-    name = Path(d["file"]).stem
-    return (d.get("issuer") + " — " if d.get("issuer") and d["issuer"].lower() not in name.lower() else "") + name
+    """A document's label on the Income and Deduction Summary (and its Excel): the document's name only, without the
+    issuer in front (Lady, 2026-11-17 - the desktop app showed "Fidelity — 1099 Composite 2025"). The issuer is still read
+    and used elsewhere (Document inventory, form tabs)."""
+    return Path(d["file"]).stem
+
+
+def _src(d, parsed=None, key=None, part=None) -> dict:
+    """Where a row's amount was read, for its link on the summary (brief 2026-11-17, page links): src_path = the document,
+    src_page = the page (from the reader: core/parsers.py "page" / "pages" / "part_pages"); no page = the document opens at
+    its start. Only a pointer for the preparer - nothing is worked out from it."""
+    p = parsed or {}
+    page = ((p.get("part_pages") or {}).get(part) if part else None) or (p.get("pages") or {}).get(key) or p.get("page")
+    return dict(src_path=d.get("path") or "", src_page=page)
 
 
 def build_income_summary(py_income: dict, docs: list, schc: list | None, py_year, cy_year, edits: dict | None = None,
@@ -71,7 +82,8 @@ def build_income_summary(py_income: dict, docs: list, schc: list | None, py_year
             amts = (parsed or {}).get("amounts", {})
             st = (parsed or {}).get("status", "none")
             if excluded:
-                rows.append(dict(doc=_disp(d), file=d["file"], did=d.get("did"), cy=None, note=d.get("note", ""), status="excluded", excluded=True))
+                rows.append(dict(doc=_disp(d), file=d["file"], did=d.get("did"), cy=None, note=d.get("note", ""), status="excluded", excluded=True,
+                                 **_src(d)))
                 continue
             if parsed is None or st == "none":
                 if d["file"] in inv_files:                   # amount entered on the document inventory instead
@@ -81,7 +93,7 @@ def build_income_summary(py_income: dict, docs: list, schc: list | None, py_year
                         continue
                     why = "; ".join((parsed or {}).get("checks", [])) or "not read by the program yet"
                     rows.append(dict(doc=_disp(d), file=d["file"], did=d.get("did"), cy=None, note="NOT READ — " + why + " (AI review)",
-                                     status="none", excluded=False))
+                                     status="none", excluded=False, **_src(d)))
                 continue
             if key in amts and (amts[key] or fam == "1099r" or key == FEEDS_[fam][0] and not any(amts.values())):
                 gen = [n for n in parsed.get("notes", []) if "wash sale" not in n]
@@ -112,16 +124,20 @@ def build_income_summary(py_income: dict, docs: list, schc: list | None, py_year
                     for i, (lb, v) in enumerate(parts):    # one row per Form 8949 box / Schedule 1 line
                         n = "; ".join(x for x in [chk if i == 0 else "", pn.get(lb, "")] if x) if pn else (note if i == 0 else "")
                         row = dict(doc=f'{_disp(d)} — {dict(st="ST ", lt="LT ").get(key, "")}{lb}', file=d["file"], did=d.get("did"), part=lb, cy=v,
-                                   note=n, status=st, excluded=False)
+                                   note=n, status=st, excluded=False, **_src(d, parsed, key, lb))
                         if key != "other":
                             row["box"] = lb
                         rows.append(row)
                 else:
-                    rows.append(dict(doc=_disp(d), file=d["file"], did=d.get("did"), cy=amts[key], note=note, status=st, excluded=False))
+                    rows.append(dict(doc=_disp(d), file=d["file"], did=d.get("did"), cy=amts[key], note=note, status=st, excluded=False,
+                                     **_src(d, parsed, key)))
+        k1_path = {d["file"]: d.get("path") for d in docs}
         for x in (k1 or {}).get("rows") or []:             # the K-1 section's package ("Add to Income Summary")
             if x.get("cat") == key:
                 rows.append(dict(doc=x["doc"], file="k1v:" + (x.get("file") or ""), cy=x.get("amt"), k1corr=x.get("corr"),
-                                 note=x.get("comment") or "", status="read", excluded=False, id=x["key"]))
+                                 note=x.get("comment") or "", status="read", excluded=False, id=x["key"],
+                                 # the page where this partnership's K-1 starts (the K-1 section numbers file n's pages 1000*n + page)
+                                 src_path=k1_path.get(x.get("file") or "") or "", src_page=(x.get("page") or 0) % 1000 or None))
         if key == "schc":
             biz = [(i, b.get("name") or (b.get("pl") or {}).get("company") or f"Business {i + 1}") for i, b in enumerate(schc or [])
                    if b.get("py") or b.get("calculated")]

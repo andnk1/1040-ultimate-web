@@ -334,7 +334,9 @@ def read_all(case: Path, roles: dict) -> dict:
     """{sheet name: [(File, Form #, What, value)]} for a case."""
     r = run_case(case, roles)
     with contextlib.redirect_stdout(io.StringIO()):
-        return {name: fn(r) for name, fn in SHEETS}
+        out = {name: fn(r) for name, fn in SHEETS}
+    out["labels"] = label_changes(r)                       # (not a sheet: the intended differences for compare)
+    return out
 
 
 # ---------------------------------------------------------------- the answer key (answer_key.xlsx per case)
@@ -438,10 +440,43 @@ def write_key(path: Path, roles: dict, data: dict, existing: dict | None = None,
     return added
 
 
-def compare(key_rows: list, now: list) -> list:
+# ---------------------------------------------------------------- intended differences from the archive / the answer keys
+# Changes Lady decided after the answer keys and the archive (python-final) were made. The expected side is translated to the
+# new way before comparing, so only real mismatches show. Each is listed in design/conversion_plan.md as well.
+#   2026-11-17  Income and Deduction Summary (and its Excel): a document's name only - the archive showed
+#               "<issuer> — <name>" when the issuer wasn't already in the name (core/income.py _disp).
+def label_changes(r: dict) -> list:
+    """[(the archive's label, today's label)] for this run's documents (longest first, so a longer label is replaced whole)."""
+    pairs = []
+    for d in r["inv"]["docs"]:
+        name, issuer = Path(d["file"]).stem, d.get("issuer")
+        if issuer and issuer.lower() not in name.lower():
+            pairs.append((f"{issuer} — {name}", name))
+    return sorted(set(pairs), key=lambda p: -len(p[0]))
+
+
+def apply_label_changes(value, pairs: list):
+    """The same value with the archive's labels written the new way (strings anywhere inside lists / dicts)."""
+    if not pairs:
+        return value
+    if isinstance(value, str):
+        for old, new in pairs:
+            value = value.replace(old, new)
+        return value
+    if isinstance(value, list):
+        return [apply_label_changes(v, pairs) for v in value]
+    if isinstance(value, dict):
+        return {apply_label_changes(k, pairs): apply_label_changes(v, pairs) for k, v in value.items()}
+    return value
+
+
+def compare(key_rows: list, now: list, labels: list | None = None) -> list:
     """Differences between a key sheet and what the program reads now: [(kind, File, Form #, What, expected, now)].
     kind = "changed" / "not read now" (in the key, gone) / "new" (read now, not in the key) /
-    "no key" (a file with no rows on this sheet - run make_key)."""
+    "no key" (a file with no rows on this sheet - run make_key). labels = label_changes(r): the intended differences."""
+    if labels:
+        key_rows = [dict(x, what=apply_label_changes(x["what"], labels), expected=apply_label_changes(x["expected"], labels))
+                    for x in key_rows]
     have = {(x["file"], x["form"], x["what"]): x for x in key_rows}
     files = {x["file"] for x in key_rows}
     cur = {(f, str(n), w): v for f, n, w, v in now}
@@ -485,14 +520,15 @@ def check_reference(case: Path) -> dict:
         for name, fn in SHEETS:
             expected = [dict(file=f, form="" if n in (None, "") else str(n), what=w, expected=v, checked="")
                         for f, n, w, v in ref["sheets"].get(name, [])]
-            diffs = compare(expected, fn(r))
+            diffs = compare(expected, fn(r), label_changes(r))
             out["sheets"].append(dict(name=name, rows=len(expected), checked=0,
                                       differences=[[str(v) for v in d] for d in diffs]))
             out["ok"] = out["ok"] and not diffs
         for name, now in pages_after_edits(case, ref["roles"], r).items():     # the converted pages (scenario.py)
             if name not in (ref.get("pages") or {}):
                 continue
-            diffs = _scenario().differences(_scenario().normalize(ref["pages"][name]), now)   # (the same rules on both sides)
+            expected = apply_label_changes(_scenario().normalize(ref["pages"][name]), label_changes(r))  # same rules both sides
+            diffs = _scenario().differences(expected, now)
             out["sheets"].append(dict(name=f"Page: {name}", rows=1, checked=0,
                                       differences=[["changed", "", "", d, "", ""] for d in diffs]))
             out["ok"] = out["ok"] and not diffs

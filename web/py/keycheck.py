@@ -38,7 +38,7 @@ def check(case_dir: str, step=None) -> dict:
     with contextlib.redirect_stdout(io.StringIO()):
         for name, fn in h.SHEETS:
             now = fn(r)
-            diffs = h.compare(key.get(name) or [], now)
+            diffs = h.compare(key.get(name) or [], now, h.label_changes(r))
             out["sheets"].append(dict(name=name, rows=len(now), checked=sum(1 for x in key.get(name) or [] if x["checked"]),
                                       differences=[[str(v) for v in d] for d in diffs]))
             out["ok"] = out["ok"] and not diffs

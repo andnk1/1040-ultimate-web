@@ -176,6 +176,49 @@ section titles — written for the desktop app: its rules stay, its desktop deta
     clients**, and again after the saved work is reopened (this computer).
   - Tried in the browser: Add P&L… (the file copied into the tab) → 3 accounts, net 48,500 → Calculate → 48,500 on the income
     summary (page redrawn); the Excel button and a Schedule C CSV download. Chrome's own file window is for Lady to try.
+- **2026-11-17 — brief `design\brief_2026-11-17.md`:**
+  - **1. Add more documents…** (Document inventory, bottom row, left of *Send to AI tab*; *or a folder…* next to it): the
+    browser's file window (several files), the ones already in the run left out with a note naming them, the stuck-PDF guard
+    on the new PDFs. Then the run is read again with every document and the work put back — Lady's suggested route: the work
+    is saved, the run is read with the old + new documents through *Continue*'s own code (`open_work` / `put_back_work`), so
+    keeping state needed nothing new (`web\py\webapp.py` `add_documents`). Added on top: a new document gets its default AI
+    tick (put back alone would leave it unticked); the run keeps saving to the same work file. The new files are copied onto
+    the in-memory drive without wiping it (worker `addmore`).
+    **Only the new files are read** (Lady, 2026-11-17): everything Run check reads from a file (its type, its amounts, the
+    prior-year return, the K-1s, Karbon, the UT print ...) is kept by the file's fingerprint while the app is open
+    (`core\readcache.py` `remember`); the add still works the whole run out again, but the old files come from what was kept.
+    A new Run check forgets it all and reads every file. The document scan's reading of one file moved into its own function
+    (`core\inventory.py` `_what_it_is`, the loop's code unchanged) so it can be kept the same way.
+    Proven: `tests\test_add_documents.py` (Sample: half the documents, a correction + a tick, the rest added → both kept, the
+    new ones read and AI-ticked, the summaries equal to a run with every document from the start, and during the add only
+    the new files are read - not the old ones, not the prior-year return); in the browser: a W-2
+    correction and tick kept through two adds, the duplicate W-2 named and not added, the new lines on the summary.
+  - **2. Document name only** on the Income and Deduction Summary and its Excel (`core\income.py` `_disp`): no issuer in front.
+    The issuer is still read and shown on the Document inventory and the form tabs. **Intended difference** from the answer
+    keys and the archive: `tests\harness.py` translates their old labels ("<issuer> — <name>") before comparing
+    (`label_changes`), so only real mismatches count.
+  - **3. Test: one tab per document, jump to a page** — built for Lady to try (this test browser blocks new tabs, so none
+    of it could be tried here): a document opens in a tab named after it (`window.open("", name)` finds that tab while it is
+    open, also after the app is reloaded); a second click does not open another tab — it brings that tab forward (or says
+    "Already open in another tab") and, with a page number, changes only `#page=N` (no reload). One blob copy per document.
+    Try it: open `http://127.0.0.1:5070/?test=pages` → Run check → Document inventory: each PDF has *p.1* and *p.3* test links.
+    Report: second click reuses the tab? jumps without reloading? tab comes forward? after closing the tab? after New run /
+    reloading the app? Lady: it works (the same tab is reused and it jumps to the page) - the test links are gone again.
+- **2026-11-17 — page links (brief `design\brief_2026-11-17_page_links.md`):**
+  - **Income and Deduction Summary:** every document name is a link that opens the PDF at the page where that row's amount
+    was read, with **p.N** under the name (Lady); the same tab as the document's other links (one tab per document, it jumps
+    to the page with `#page=N`). Rows with no page (typed amounts, Schedule C / E box, not-read documents) open the document
+    at its start and show no page; a file that isn't a PDF shows its name only (the Drive link question is still open).
+  - **Document inventory:** no page links (the test links removed); the name opens the whole document, same-tab kept.
+  - **The readers keep the page** (`core\parsers.py`, 1 = the first page): `page` = where the form starts (the first form
+    when a file holds several that are added together), `pages` = per amount when they sit on different pages (a composite:
+    the page where its INT / DIV / MISC section was read, the 1099-B summary's page for short / long-term), `part_pages` =
+    per Form 8949 row (capital gain distributions → the DIV page, §1256 → box 11's page). W-2, 1099-R (all three layouts
+    except the list layout), SSA-1099, 1099-MISC / NEC, 1099-INT (bank forms), 1098, 1098-E, Koinly Schedule D / 1, the
+    composites, the box-row / box-list summaries. K-1 rows: the page where that partnership's K-1 starts (the K-1 section
+    already kept it). The summary rows carry `src_path` / `src_page` (`core\income.py` `_src`). No amount changed: the
+    archive check leaves the two new fields out (written down as new, not different) and compares everything else.
+  - Not given a page yet: the list-layout W-2 / 1099-R (mock files only) — their names open the document at its start.
 - **Phase 1 built (2026-11-16, in the old folder):**
   - `core\pdfengine.py` is the one PDF door: nothing else in `core\` imports PyMuPDF (`pdfutil.py`, `utscreens.py`,
     `ai\docs.py`, `k1v\ut_entry.py` go through it). Its header lists what the browser stand-in (MuPDF.js) must cover.

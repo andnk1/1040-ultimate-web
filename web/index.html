@@ -91,6 +91,7 @@ let WIPS = [];                                       // work-in-progress files f
 let DOCS = [];
 let CASE = null;                                     // {folder, files: [{rel, file}]} - a test case (answer key / archive results)
 let busy = false;
+let adding = false;                                  // Add more documents… is reading
 // files that are never documents (the desktop's folder scan leaves the same ones out of sight)
 const SKIP = /^(~\$|\.)|\.(json|bak|tmp|lnk|ini)$|^(Thumbs\.db|answer_key\.xlsx|archive_reference\.json)$/i;
 const same = (a, b) => a && b && a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
@@ -118,7 +119,7 @@ worker.onmessage = e => {
   const m = e.data;
   if (m.type === "load") line("loadSteps", m.msg);
   else if (m.type === "ready") { show($("loading"), false); show($("pickCard")); }
-  else if (m.type === "step") line("steps", m.msg);
+  else if (m.type === "step") { line("steps", m.msg); if (adding) $("took").textContent = "Adding documents: " + m.msg.trim(); }
   else if (m.type === "problem" || m.type === "error") fail(m.msg);
   else if (m.type === "done") done(m);
   else if (m.type === "keys") keysDone(m);
@@ -331,6 +332,7 @@ async function guard(pdfs) {
 // /client/docs/_files/); the prior-year return / summary use the document's own copy when the same file is in the list
 // (as on the desktop, where it is one file on disk), else /client/picked/
 const docPath = d => "/client/docs/" + (d.folder || "_files/") + d.name;
+let STUCK = [];                                        // documents of this run the PDF reader got stuck on (left out)
 const isPdf = name => /\.pdf$/i.test(name);
 function begin() {
   busy = true;
@@ -359,6 +361,7 @@ $("go").onclick = async () => {
   const single = new Set([pyret, clientsum].filter(Boolean));
   const g = await guard(files.filter(f => isPdf(f.file.name)).map(f => ({ ...f, single: single.has(f.path) })));
   if (g.stop) return fail(g.stop);
+  STUCK = g.stuck;
   worker.postMessage({ type: "run", files, pyret, clientsum, wip: PICK.wip ? WIP_PATH : "", docs: DOCS.filter(d => d.on).map(docPath),
                        stuck: g.stuck, writable: PLACES.map(p => p.place) });
 };
@@ -391,6 +394,7 @@ const SHIM = `<script>(() => {
   });
   addEventListener("submit", e => { e.preventDefault(); parent.u1040.toast("Not in the browser app yet."); }, true);
   window.reloadPage = () => parent.u1040.reload();    // the templates call these where the desktop reloaded / navigated
+  window.addMoreDocs = kind => parent.u1040.addMore(kind);   // Document inventory → Add more documents…
   window.goTo = url => { const u = new URL(url, location.href); parent.u1040.go(u.pathname + u.search); };
 })();<\/script>`;
 let currentUrl = "";
@@ -425,19 +429,12 @@ window.u1040 = {
     const text = r.kind === "json" ? JSON.stringify(r.body) : String(r.body);
     return new Response(text, { status: r.status, headers: { "Content-Type": r.kind === "json" ? "application/json" : "text/html" } });
   },
-  // a link: "/" = a new run; /open?path=... = a document in a new tab; anything else = a page or a download
+  // a link: "/" = a new run; /open?path=... = a document in its tab; anything else = a page or a download
   async go(url) {
     if (url === "/") return $("newRun").click();
-    const tab = url.startsWith("/open?") ? window.open("about:blank", "_blank") : null;   // opened now, while the click counts
+    if (url.startsWith("/open?")) return openDocument(url);
     const r = await ask({ type: "request", method: "GET", url });
-    if (r.kind === "html") { if (tab) tab.close(); return showPage(r.body, url); }
-    if (r.kind === "file" && r.inline && tab) {
-      tab.location = URL.createObjectURL(new Blob([r.body], { type: r.mime }));
-      return;
-    }
-    if (tab) tab.close();
-    if (r.kind === "file" && r.inline)                // Chrome blocked the new tab (pop-ups off for this site)
-      toast("Chrome blocked the new tab — allow pop-ups for this site (icon at the right of the address bar). Downloaded instead.");
+    if (r.kind === "html") return showPage(r.body, url);
     if (r.kind === "file") return download(r.body, r.filename, r.mime);
     toast(r.kind === "error" ? "Something went wrong: " + r.body : "Not in the browser app yet.");
   },
@@ -472,7 +469,95 @@ async function chooseFolder() {
   addPlace(place + "/", dir);
   return { folder: place };
 }
-$("newRun").onclick = () => { show($("result"), false); show($("start")); $("page").srcdoc = ""; currentUrl = ""; };
+// ---------------------------------------------------------------- a source document in its own tab (brief 2026-11-17, item 3)
+// Each document opens in ONE tab: the tab is named after the document (window.open("", name) finds a tab with that name if
+// it is still open - also after the app was reloaded), so a second click brings that tab back instead of opening another.
+// A page number (/open?path=…&page=3) moves the open PDF to that page by changing only the end of its address (#page=3),
+// which does not load the document again. One copy (blob address) is kept per document while the app is open.
+const DOC_URLS = new Map();                            // document path -> its blob address
+async function openDocument(url) {
+  const q = new URLSearchParams(url.slice(6));
+  const path = q.get("path"), page = q.get("page");
+  const name = "u1040-doc:" + path;
+  const tab = window.open("", name);                   // opened now, while the click counts: the tab already open, or a new one
+  if (!tab) {                                          // Chrome blocked new tabs (pop-ups off for this site)
+    const r = await ask({ type: "request", method: "GET", url: "/open?path=" + encodeURIComponent(path) });
+    toast("Chrome blocked the new tab — allow pop-ups for this site (icon at the right of the address bar). Downloaded instead.");
+    if (r.kind === "file") download(r.body, r.filename, r.mime);
+    return;
+  }
+  let fresh = true;
+  try { fresh = !tab.location.href || tab.location.href === "about:blank"; } catch (e) { fresh = false; }
+  if (!fresh) {                                        // already open: the same tab, moved to the page
+    if (page) tab.location.hash = "page=" + page;
+    tab.focus();
+    setTimeout(() => { if (document.hasFocus()) toast("Already open in another tab."); }, 400);
+    return;
+  }
+  let blobUrl = DOC_URLS.get(path);
+  if (!blobUrl) {
+    const r = await ask({ type: "request", method: "GET", url: "/open?path=" + encodeURIComponent(path) });
+    if (r.kind !== "file") { tab.close(); return toast(typeof r.body === "string" ? "Can't open it: " + r.body.slice(0, 120) : "Can't open it."); }
+    blobUrl = URL.createObjectURL(new Blob([r.body], { type: r.mime }));
+    DOC_URLS.set(path, blobUrl);
+  }
+  tab.location = blobUrl + (page ? "#page=" + page : "");
+}
+// ---------------------------------------------------------------- Add more documents… (brief 2026-11-17, item 1)
+// Documents that came later, added to the open run: picked with the browser's window (files, or a folder), the ones already
+// in the run left out (same file), the stuck-PDF guard on the new PDFs, then the run is read again with every document and
+// the work put back (web/py/webapp.py add_documents) - the summaries are worked out again, nothing done is lost.
+function pickMore(kind) {
+  const given = window.u1040Test.nextPick;             // (automated checks only: the files the file window would give)
+  if (given) { window.u1040Test.nextPick = null; return Promise.resolve(given); }
+  if (kind === "folder" && window.showDirectoryPicker) {
+    return window.showDirectoryPicker({ mode: "readwrite" }).then(async dir => {
+      const out = [];
+      await walk(dir, "", out);
+      addPlace("/client/docs/" + dir.name + "/", dir);
+      return out.map(f => { const name = f.rel.split("/").pop(); return { name, folder: dir.name + "/" + f.rel.slice(0, f.rel.length - name.length), file: f.file }; });
+    }, () => []);
+  }
+  return new Promise(resolve => {
+    const input = Object.assign(document.createElement("input"), { type: "file", multiple: true });
+    input.onchange = () => resolve([...input.files].map(f => ({ name: f.name, folder: "", file: f })));
+    input.oncancel = () => resolve([]);
+    input.click();
+  });
+}
+window.u1040.addMore = async kind => {
+  if (busy) return toast("Still reading — wait for it to finish.");
+  const token = currentUrl.split("/").pop();
+  const picked = (await pickMore(kind)).filter(d => !SKIP.test(d.name) && !WIP_NAME.test(d.name));
+  if (!picked.length) return;
+  const dup = picked.filter(d => DOCS.some(x => same(x.file, d.file)));
+  const fresh = picked.filter(d => !DOCS.some(x => same(x.file, d.file)));
+  if (dup.length) toast(`Already in the run, not added again: ${dup.map(d => d.name).join(", ")}`);
+  if (!fresh.length) return;
+  busy = adding = true;
+  $("took").textContent = `Adding ${fresh.length} document${fresh.length === 1 ? "" : "s"}…`;
+  try {
+    fresh.forEach(d => DOCS.push({ ...d, on: true }));
+    const files = fresh.map(d => ({ path: docPath(d), file: d.file }));
+    const g = await guard(files.filter(f => isPdf(f.file.name)).map(f => ({ ...f, single: false })));
+    STUCK = STUCK.concat(g.stuck);
+    const r = await ask({ type: "addmore", token, files, docs: DOCS.filter(d => d.on).map(docPath), stuck: STUCK });
+    if (r.kind === "error") throw new Error(r.body);
+    if (r.body.problem) throw new Error(r.body.problem);
+    showPage(r.body.page, "/summary/" + r.body.token, true);
+    $("took").textContent = `Added ${fresh.length} document${fresh.length === 1 ? "" : "s"} (${Math.round(r.seconds || 0)} s)` +
+      (g.stuck.length ? ` — ${g.stuck.length} left out (the PDF reader got stuck)` : "");
+  } catch (e) {
+    fresh.forEach(d => DOCS.splice(DOCS.indexOf(DOCS.find(x => x.file === d.file)), 1));
+    $("took").textContent = "";
+    toast("Couldn't add the documents: " + (e.message || e));
+  } finally {
+    busy = adding = false;
+    draw();
+  }
+};
+
+$("newRun").onclick = () => { show($("result"), false); show($("start")); $("page").srcdoc = ""; currentUrl = ""; DOC_URLS.clear(); };
 
 // ---------------------------------------------------------------- the test checks (a folder with answer_key.xlsx / archive_reference.json)
 // Check against the answer key: the case's answer_key.xlsx (tests/samples/<case>). Check against the archive: the results the

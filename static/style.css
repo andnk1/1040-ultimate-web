@@ -372,3 +372,7 @@ table.v.aidocs select{font:inherit;font-size:.84rem;padding:3px 6px;border:1px s
 .aierr{margin-top:8px}
 .card .cardbody button.aisend:disabled{opacity:.55;cursor:default}
 .invadd td.aibtn{text-align:right;white-space:nowrap}
+/* Document inventory: Add more documents… sits at the left of the bottom row, Send to AI tab stays at the right */
+td.aibtn .addmore{float:left;display:flex;gap:10px;align-items:center}
+/* the page under a document's name on the Income and Deduction Summary (p.3) */
+.pgref{font-size:.72rem;line-height:1.1}

@@ -8,6 +8,14 @@
 </head>
 <body>
 {% from '_steps.html' import steps %}
+{# srclink: a row's document name - a PDF opens at the page where the amount was read (p.N under the name), in the same tab
+   as the document's other links (brief 2026-11-17, page links). No page: the whole document. Not a PDF: the name only. #}
+{% macro srclink(d) -%}
+{%- if d.src_path and d.src_path.lower().endswith('.pdf') -%}
+<a class="doclink" href="/open?path={{ d.src_path|urlencode }}{{ '&page=' ~ d.src_page if d.src_page }}" title="Open the document{{ ' at page ' ~ d.src_page if d.src_page }}">{{ d.doc }}</a>
+{%- if d.src_page %}<div class="note pgref">p.{{ d.src_page }}</div>{% endif -%}
+{%- else -%}{{ d.doc }}{%- endif -%}
+{%- endmacro %}
 {% macro money(v) -%}
 {%- if v is none -%}
 {%- else -%}{{ "{:,.0f}".format(v) }}
@@ -107,7 +115,7 @@
           {% else %}
           <tr class="docrow {{ 'exrow' if d.excluded }}{{ ' memo' if d.memo }}{{ ' st-' ~ d.status }}{{ ' invrow' if d.inv }}" data-sec="{{ s.key }}" data-id="{{ d.id }}"
               data-live="{{ 0 if (d.excluded or d.memo) else 1 }}"{% if d.inv %} data-inv="1"{% endif %}>
-            <td><span class="rowck"><input type="checkbox" data-mk="inc|{{ d.id }}" title="Reviewed" {{ 'checked' if r.marks.get('inc|' ~ d.id) }}></span>{% if d.sche is defined %}<span data-schename="{{ d.sche }}">{{ d.doc }}</span>{% elif d.schc is defined %}<span data-schcname="{{ d.schc }}">{{ d.doc }}</span>{% else %}{{ d.doc }}{% endif %}</td>
+            <td><span class="rowck"><input type="checkbox" data-mk="inc|{{ d.id }}" title="Reviewed" {{ 'checked' if r.marks.get('inc|' ~ d.id) }}></span>{% if d.sche is defined %}<span data-schename="{{ d.sche }}">{{ d.doc }}</span>{% elif d.schc is defined %}<span data-schcname="{{ d.schc }}">{{ d.doc }}</span>{% else %}{{ srclink(d) }}{% endif %}</td>
             <td class="n"></td>
             <td class="n doccol">{{ money(d.doc_cy) }}</td>
             <td class="n"{% if d.sche is defined %} data-sche="{{ d.sche }}"{% elif d.schc is defined %} data-schc="{{ d.schc }}"{% endif %}>{% if d.excluded %}{% else %}{{ inp(d.cy, 'cy', d) }}{% endif %}</td>

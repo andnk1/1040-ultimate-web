@@ -101,12 +101,13 @@ _CLOCK = re.compile(r"\d{4}-\d\d-\d\d \d\d:\d\d(:\d\d)?")      # "2026-11-17 17:
 
 def normalize(value):
     """What both apps keep, made comparable: file paths become file names (the archive ran from C:\\..., this app from its
-    own folders); clock times are left out (when the work was saved, when the K-1s were added). Everything else must be the
-    same."""
+    own folders); clock times are left out (when the work was saved, when the K-1s were added); src_path / src_page are left
+    out - new in the browser app (each summary row's link to the page its amount was read on, 2026-11-17), the archive has
+    no such field. Everything else must be the same."""
     def walk(v):
         if isinstance(v, dict):
             return {walk(k) if isinstance(k, str) else k: walk(x) for k, x in v.items()
-                    if k != "saved" and not (isinstance(x, str) and _CLOCK.fullmatch(x))}
+                    if k not in ("saved", "src_path", "src_page") and not (isinstance(x, str) and _CLOCK.fullmatch(x))}
         if isinstance(v, list):
             return [walk(x) for x in v]
         if isinstance(v, str) and _PATHISH.match(v):

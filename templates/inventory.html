@@ -46,8 +46,12 @@
       {% for m in r.inv.missing %}<tr class="r-skipped"><td></td><td>{{ m }}</td><td colspan="7" class="flag">File not found</td></tr>{% endfor %}
       <tr class="invadd noprint"><td class="ck"><button type="button" class="plus" title="Add a line" onclick="invAdd()">+</button></td>
         <td colspan="8" class="aibtn">{# under the AI column: opens the AI tab with the ticked documents - sends nothing (design/ai_requests.md) #}
+          {# Add more documents… (brief 2026-11-17): documents that came later, added to this run - the work stays #}
+          <span class="addmore"><button type="button" class="light" title="Read more documents into this run — your work stays"
+                  onclick="addMoreDocs('files')">Add more documents…</button>
+            <a href="#" class="note" onclick="addMoreDocs('folder'); return false;">or a folder…</a></span>
           <button type="button" title="Opens the AI tab with the documents ticked AI — nothing is sent from here"
-                  onclick="(window.toaiPending || Promise.resolve()).finally(() => { location.href = '/ai/{{ token }}'; })">Send to AI tab</button></td></tr>
+                  onclick="(window.toaiPending || Promise.resolve()).finally(() => { goTo('/ai/{{ token }}'); })">Send to AI tab</button></td></tr>
     </table>
     </div>
     <div id="fvPane" style="display:none"></div>{# form tabs: static/forms.js #}

@@ -25,6 +25,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import docid
+from .readcache import remember                          # each file is read once while the app is open (core/readcache.py)
 from . import formview as fv_mod
 from . import wip as wip_mod
 from .carryovers import read_carryovers
@@ -149,7 +150,7 @@ def check_form(form: dict) -> None:
     if form.get("pyret"):
         if not Path(form["pyret"]).is_file():
             raise Problem("The prior-year return file wasn't found.")
-        if not looks_like_1040(form["pyret"]):
+        if not remember("is a 1040", form["pyret"], lambda: looks_like_1040(form["pyret"])):
             raise Problem(f"\"{Path(form['pyret']).name}\" doesn't look like a tax return — choose the prior-year 1040 "
                           "(full print package), or leave it empty.")
     if form.get("clientsum"):
@@ -160,7 +161,7 @@ def check_form(form: dict) -> None:
     if form.get("utscreens"):
         if not Path(form["utscreens"]).is_file():
             raise Problem("The UltraTax input screens file wasn't found.")
-        if not looks_like_ut_screens(form["utscreens"]):
+        if not remember("is a UT print", form["utscreens"], lambda: looks_like_ut_screens(form["utscreens"])):
             raise Problem(f"\"{Path(form['utscreens']).name}\" doesn't look like the UltraTax input screens print.")
 
 
@@ -180,7 +181,7 @@ def load_ut(r, path) -> None:
     The K-1 section gets the same print for its K-1 entry check."""
     r["ut_path"], r["ut_scr"], r["ut_error"] = path, None, None
     try:
-        r["ut_scr"] = read_ut_screens(path)
+        r["ut_scr"] = remember("UT input screens", path, lambda: read_ut_screens(path))
         if not (r["ut_scr"]["entries"] or r["ut_scr"].get("rents") or r["ut_scr"].get("memo") or r["ut_scr"].get("payments")
                 or r["ut_scr"].get("cscreens")):
             r["ut_error"] = f"No income entries found in \"{Path(path).name}\" — is it the input screens print?"
@@ -203,12 +204,13 @@ def read(form: dict, docs_on: list, *, work_dir, doc_list=None, mode: str = "sum
     if form["pyret"]:
         try:
             step("reading the prior-year return: summary")
-            py = read_prior_return(form["pyret"])
+            pyret = form["pyret"]
+            py = remember("prior-year return", pyret, lambda: read_prior_return(pyret))
             step("prior-year return: Schedule C / E, income, carryovers")
-            schc_py = read_schedule_c(form["pyret"])
-            sche_py = read_schedule_e(form["pyret"])
-            py_inc = read_py_income(form["pyret"], py, schc_py)
-            carry = read_carryovers(form["pyret"])
+            schc_py = remember("prior-year Schedule C", pyret, lambda: read_schedule_c(pyret))
+            sche_py = remember("prior-year Schedule E", pyret, lambda: read_schedule_e(pyret))
+            py_inc = remember("prior-year income", pyret, lambda: read_py_income(pyret, py, schc_py))
+            carry = remember("carryovers", pyret, lambda: read_carryovers(pyret))
         except Exception as e:  # noqa: BLE001
             raise Problem(f"Couldn't read the prior-year return: {e}") from e
     else:
@@ -224,7 +226,7 @@ def read(form: dict, docs_on: list, *, work_dir, doc_list=None, mode: str = "sum
     if form["utscreens"]:
         step("reading the UT input screens")
         try:
-            ut = read_ut_screens(form["utscreens"])
+            ut = remember("UT input screens", form["utscreens"], lambda: read_ut_screens(form["utscreens"]))
         except Exception:  # noqa: BLE001
             ut = None
     if not py.get("year"):                                    # no prior-year return: the tax year from the documents
@@ -240,7 +242,7 @@ def read(form: dict, docs_on: list, *, work_dir, doc_list=None, mode: str = "sum
     kpath = (found[0]["path"] if found else "") or form["karbon"]
     form["karbon"] = kpath
     try:
-        karbon = read_karbon(kpath) if kpath else None
+        karbon = remember("Karbon organizer", kpath, lambda: read_karbon(kpath)) if kpath else None
     except Exception as e:  # noqa: BLE001
         karbon = dict(title="", questions=[], error=str(e))
     if karbon is not None:
@@ -254,7 +256,7 @@ def read(form: dict, docs_on: list, *, work_dir, doc_list=None, mode: str = "sum
     if form["clientsum"]:
         step("reading the client summary")
         try:
-            clientsum = read_client_summary(form["clientsum"])
+            clientsum = remember("client summary", form["clientsum"], lambda: read_client_summary(form["clientsum"]))
         except Exception as e:  # noqa: BLE001
             clientsum = dict(file=Path(form["clientsum"]).name, items=[], error=str(e))
     step("reading the amounts on each document")
@@ -315,7 +317,7 @@ def split_packages(inv, work_dir, step=_quiet):
     for d in inv["docs"]:
         if d.get("family") in ("composite", "1099b", "1099div", "1099int") and d["path"].lower().endswith(".pdf"):
             try:
-                parts = split_accounts(d["path"], work_dir)
+                parts = remember("accounts", d["path"], lambda: split_accounts(d["path"], work_dir), str(work_dir))
             except Exception:  # noqa: BLE001
                 parts = []
             if parts:
@@ -336,7 +338,7 @@ def client_label(form, paths) -> str:
     """Taxpayer's last name + last 4 of the SSN from the 2024 return (page 1); else the client folder's name."""
     if form.get("pyret"):
         try:
-            tp = (read_people(form["pyret"]) or [{}])[0]
+            tp = (remember("people", form["pyret"], lambda: read_people(form["pyret"])) or [{}])[0]
             last = re.sub(r"[^A-Za-z' -]", "", tp.get("last") or "").strip().title()
             ssn = re.sub(r"\D", "", tp.get("ssn") or "")
             if last:
@@ -372,7 +374,7 @@ def read_amounts(inv: dict, step=_quiet) -> None:
                      note=(d["note"] + " Detail of the Koinly Schedule D — totals taken from the Schedule D.").strip())
             continue
         step(f"   {d['file']}")
-        p = parse_document(d)
+        p = remember("amounts", d["path"], lambda: parse_document(d), d["family"], d.get("doc_type"))
         d["parsed"] = p
         if p is None:
             d.update(read="none", route="ai", note=(d["note"] + " No program reader for this form yet — AI review.").strip())
@@ -389,7 +391,7 @@ def read_amounts(inv: dict, step=_quiet) -> None:
     grp = None
     if k8949:
         try:
-            grp = koinly_8949_group(k8949["path"])
+            grp = remember("8949 group", k8949["path"], lambda: koinly_8949_group(k8949["path"]))
         except Exception:  # noqa: BLE001
             grp = None
     for d in inv["docs"]:
@@ -408,7 +410,7 @@ def read_amounts(inv: dict, step=_quiet) -> None:
     for d in inv["docs"]:
         # documents that now go to the AI: long ones send only their summary pages
         if (d["route"] in ("ai", "context") or d.get("read") == "partial") and not d.get("ai_page_list") and d["ext"] == ".pdf":
-            sp = summary_pages_for(d["path"], d.get("pages") or 0)
+            sp = remember("AI pages", d["path"], lambda: summary_pages_for(d["path"], d.get("pages") or 0), d.get("pages"))
             if sp:
                 d.update(ai_page_list=sp, ai_pages=", ".join(map(str, sp)) + f" of {d['pages']}")
             elif d.get("pages") and not d.get("ai_pages"):

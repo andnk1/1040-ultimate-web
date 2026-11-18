@@ -25,7 +25,7 @@ def _case(name: str):
 def test_case(case, sheet):
     key, now = _case(case)
     new_files = [p.name for p in h.case_files(h.SAMPLES / case) if p.name not in key["roles"]]
-    diffs = h.compare(key[sheet], now[sheet])
+    diffs = h.compare(key[sheet], now[sheet], now.get("labels"))     # (labels: the intended differences, harness.py)
     msg = h.report(diffs) if diffs else ""
     if new_files:
         msg += ("\n" if msg else "") + "Files not in the key yet (run make_key): " + "; ".join(new_files)

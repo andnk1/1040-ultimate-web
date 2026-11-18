@@ -16,6 +16,7 @@ from collections import Counter
 from pathlib import Path
 
 from .pdfutil import open_pdf, page_text, has_text
+from .readcache import fingerprint, remember
 
 PDF_EXT = {".pdf"}
 SHEET_EXT = {".xlsx", ".xls", ".xlsm", ".csv"}
@@ -225,13 +226,6 @@ def summary_pages_for(path, n_pages: int) -> list[int] | None:
         return _summary_pages(doc, n_pages)
 
 
-def _file_hash(p: Path) -> str:
-    h = hashlib.sha1()
-    with open(p, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
 
 def text_fp(text: str) -> str | None:
     """Fingerprint of a document's text (its first pages): the same after an Acrobat re-save, different on a corrected form."""
@@ -270,7 +264,7 @@ def scan_files(paths: list, py_year: int | None = None, py_return: str | Path | 
                  password=False)
         # duplicates (same bytes)
         try:
-            h = _file_hash(p)
+            h = fingerprint(p)                              # (the same SHA-1 as before - kept, so the file isn't hashed again)
         except OSError:
             h = None
         # the document's id - saved work is keyed by it: its fingerprint, whatever its name or folder
@@ -288,56 +282,11 @@ def scan_files(paths: list, py_year: int | None = None, py_return: str | Path | 
                      note="The prior-year return picked above — read separately.")
             docs.append(d)
             continue
-        if ext in PDF_EXT:
-            try:
-                doc, pw = open_pdf(p, extra_passwords)
-            except ValueError:
-                d.update(doc_type="Password-protected PDF", route="ai",
-                         note="Couldn't open — password not found in the file name. Add it on the masking step.")
-                docs.append(d)
-                continue
-            except Exception as e:  # noqa: BLE001
-                d.update(doc_type="Unreadable PDF", route="ai", note=f"Couldn't open: {e}")
-                docs.append(d)
-                continue
-            with doc:
-                n = len(doc)
-                d["pages"], d["password"] = n, bool(pw)
-                texts = [page_text(doc, i) for i in range(min(n, CLASSIFY_PAGES))]
-                text = "\n".join(texts)
-                d["tfp"] = text_fp(text)
-                txt_pages = sum(has_text(t) for t in texts)
-                d["text"] = "yes" if txt_pages == len(texts) else ("partial" if txt_pages else "no")
-                producer = (doc.metadata or {}).get("producer") or ""
-                if not txt_pages:
-                    d.update(doc_type="Scanned / image PDF", family="scan", route="ai",
-                             note="No text layer — the AI reads it as an image (slower, check the amounts).")
-                else:
-                    d.update(classify_text(text, p.name, n, producer))
-                    d["year"] = return_year(text) if d["family"] in ("return", "bizreturn") else _year(text, py_year)
-                    d["issuer"] = _issuer("\n".join(texts[:2]))
-                    d["head_text"] = "\n".join(texts[:2])[:6000]     # last year's payers are looked for in it
-                    d["route"] = ROUTE.get(d["family"], "ai")
-                    if d["family"] == "return":
-                        if py_year and d["year"] == py_year:
-                            d.update(route="skipped", note="Looks like a prior-year return — pick it in 'Prior-year return' instead.")
-                        else:
-                            d.update(route="context", note="A tax return in the documents folder — the AI reads it as context.")
-                    if d["route"] in ("ai", "context") and n > LONG_DOC:
-                        sp = _summary_pages(doc, n)
-                        d["ai_pages"] = ", ".join(map(str, sp)) + f" of {n}"
-                        d["ai_page_list"] = sp
-                    elif d["route"] in ("ai", "context"):
-                        d["ai_pages"] = f"all ({n})"
-        elif ext in SHEET_EXT:
-            d.update(doc_type="Spreadsheet / CSV", family="sheet", route="ai", note="")
-        elif ext in NOTE_EXT:
-            d.update(doc_type="Note / e-mail / letter", family="note", route="context")
-        elif ext in IMG_EXT:
-            d.update(doc_type="Image", family="image", route="ai", note="Photo/scan — the AI reads it as an image.")
-        else:
-            d.update(doc_type="Unsupported file type", family="unsupported", route="skipped",
-                     note=f"{ext or 'no extension'} files aren't read.")
+        # what the file is (type, issuer, year, who reads it): read once while the app is open (core/readcache.py)
+        before = dict(d)
+        found = remember("document type", p, lambda: _what_it_is(p, dict(before), py_year, extra_passwords),
+                         p.name, py_year, tuple(extra_passwords or ()))
+        d.update(found)
         docs.append(d)
 
     for d in docs:
@@ -347,6 +296,61 @@ def scan_files(paths: list, py_year: int | None = None, py_return: str | Path | 
     counts = Counter(d["route"] for d in docs)
     missing = [str(p) for p in paths if not Path(p).is_file()]
     return dict(docs=docs, missing=missing, counts={k: counts.get(k, 0) for k in ROUTE_LBL})
+
+
+def _what_it_is(p: Path, d: dict, py_year, extra_passwords) -> dict:
+    """One document read: its type, issuer, tax year, pages, and who reads it - the fields that changed in d."""
+    before = dict(d)
+    ext = d["ext"]
+    if ext in PDF_EXT:
+        try:
+            doc, pw = open_pdf(p, extra_passwords)
+        except ValueError:
+            d.update(doc_type="Password-protected PDF", route="ai",
+                     note="Couldn't open — password not found in the file name. Add it on the masking step.")
+            return {k: v for k, v in d.items() if before.get(k, object()) != v}
+        except Exception as e:  # noqa: BLE001
+            d.update(doc_type="Unreadable PDF", route="ai", note=f"Couldn't open: {e}")
+            return {k: v for k, v in d.items() if before.get(k, object()) != v}
+        with doc:
+            n = len(doc)
+            d["pages"], d["password"] = n, bool(pw)
+            texts = [page_text(doc, i) for i in range(min(n, CLASSIFY_PAGES))]
+            text = "\n".join(texts)
+            d["tfp"] = text_fp(text)
+            txt_pages = sum(has_text(t) for t in texts)
+            d["text"] = "yes" if txt_pages == len(texts) else ("partial" if txt_pages else "no")
+            producer = (doc.metadata or {}).get("producer") or ""
+            if not txt_pages:
+                d.update(doc_type="Scanned / image PDF", family="scan", route="ai",
+                         note="No text layer — the AI reads it as an image (slower, check the amounts).")
+            else:
+                d.update(classify_text(text, p.name, n, producer))
+                d["year"] = return_year(text) if d["family"] in ("return", "bizreturn") else _year(text, py_year)
+                d["issuer"] = _issuer("\n".join(texts[:2]))
+                d["head_text"] = "\n".join(texts[:2])[:6000]     # last year's payers are looked for in it
+                d["route"] = ROUTE.get(d["family"], "ai")
+                if d["family"] == "return":
+                    if py_year and d["year"] == py_year:
+                        d.update(route="skipped", note="Looks like a prior-year return — pick it in 'Prior-year return' instead.")
+                    else:
+                        d.update(route="context", note="A tax return in the documents folder — the AI reads it as context.")
+                if d["route"] in ("ai", "context") and n > LONG_DOC:
+                    sp = _summary_pages(doc, n)
+                    d["ai_pages"] = ", ".join(map(str, sp)) + f" of {n}"
+                    d["ai_page_list"] = sp
+                elif d["route"] in ("ai", "context"):
+                    d["ai_pages"] = f"all ({n})"
+    elif ext in SHEET_EXT:
+        d.update(doc_type="Spreadsheet / CSV", family="sheet", route="ai", note="")
+    elif ext in NOTE_EXT:
+        d.update(doc_type="Note / e-mail / letter", family="note", route="context")
+    elif ext in IMG_EXT:
+        d.update(doc_type="Image", family="image", route="ai", note="Photo/scan — the AI reads it as an image.")
+    else:
+        d.update(doc_type="Unsupported file type", family="unsupported", route="skipped",
+                 note=f"{ext or 'no extension'} files aren't read.")
+    return {k: v for k, v in d.items() if before.get(k, object()) != v}
 
 
 def _apply_rules(docs: list, py_year: int | None) -> None:
