@@ -15,9 +15,9 @@ A page is done when it gives the same results as the archive on the sample clien
 | 2 · Verify return | `verify.html` + 4 addresses | not yet |
 | 3 · AI Doc Review | `ai_requests.html` + 4 addresses, API key in `.env` | not yet — waits for the key decision |
 | 4 · AI Return Review, 5 · AI Advisory | placeholder pages | **Built** (step A) — same pages |
-| 6 · K-1 Verification | `k1v\home.html` (new browser tab) | not yet |
-| 7 · K-1 Interpreter + K-1 entry check | `k1v\report.html`, `k1v\verify.html` | not yet |
-| 8 · K-1 UT | `k1v\prep.html` + CSV / Excel / PDF | not yet (the CSV itself is already checked: `tests\test_ut_export_format.py`) |
+| 6 · K-1 Verification | `k1v\home.html` (new browser tab) | **Built** (step 5) — inside the app |
+| 7 · K-1 Interpreter + K-1 entry check | `k1v\report.html`, `k1v\verify.html` | **Built** (step 5) |
+| 8 · K-1 UT | `k1v\prep.html` + CSV / Excel / PDF | **Built** (step 5) — the PDF is a print page |
 | Mask page | `mask.html` | **not converted** — a separate app |
 
 ## How the pages run without a server (step A — before any page) — **built 2026-11-17**
@@ -129,13 +129,15 @@ summary ticks; (h) Income and Deduction Summary (Excel); (i) K-1 box Remove.
    **Built 2026-11-17** — the saved work and the summaries = the archive after the same edits, and after reopening.
 3. **1c–1i** — form tabs, UT summary, Schedule C / E, Excel, K-1 Remove. **Built 2026-11-17** — the whole Summary works.
 4. **2** — Verify return.
-5. **6 → 7 → 8** — the K-1 pages.
+5. **6 → 7 → 8** — the K-1 pages. **Built 2026-11-18** (before step 4, Lady) — details in BUILD_NOTES.md.
 6. **3** — AI Doc Review, after the key decision.
 
 ## Intended differences from the archive (decided by Lady after python-final)
 - 2026-11-17 — the Income and Deduction Summary (and its Excel) shows a document's name only, without the issuer in front
   (brief_2026-11-17, item 2). The archive check and the answer keys translate the old label before comparing
   (`tests\harness.py` `label_changes`).
+- 2026-11-18 — the K-1 pages open inside the app (question 3); the by-hand list's PDF is a print page (question 5:
+  Chrome's Save as PDF).
 - 2026-11-17 — each summary row carries the page its amount was read on (`src_path` / `src_page`, the name's link) — new,
   the archive has no such field: the check leaves those two fields out (`tools\parity\scenario.py` `normalize`).
 

@@ -90,6 +90,27 @@ resp = c.post("/run", data=dict(mode="summary", pyret=pick("Prior-year return"),
 r2 = app.RUNS[re.search(r"/summary/([0-9a-f]+)", resp.headers["Location"]).group(1)]
 inc2, ded2 = app._summaries(r2)
 out["pages"]["summary_reopened"] = scenario.normalize(dict(work=wip_mod.snapshot(r2), income=inc2, deductions=ded2))
+
+# step 5: the K-1 pages, on a fresh run with no K-1s added
+r3 = h.run_case(case, roles, add_k1=False)
+if r3.get("wip_path"):                     # the K-1 page saves its work next to the client's: a temporary folder, same name
+    r3["wip_path"] = str(Path(tempfile.mkdtemp()) / Path(r3["wip_path"]).name)
+def open_page(url):
+    return c.get(url.format(token=r3["token"])).status_code
+def post3(url, body):
+    resp = c.post(url.format(token=r3["token"]), json=body)
+    assert resp.status_code == 200, (url, resp.status_code)
+    return resp.get_json()
+def get3(url):
+    resp = c.get(url)
+    assert resp.status_code == 200, (url, resp.status_code)
+    return re.search(r'filename="?([^";]+)"?', resp.headers.get("Content-Disposition", "")).group(1), resp.data
+def post_file(url, body):
+    resp = c.post(url, json=body)
+    assert resp.status_code == 200, (url, resp.status_code)
+    return re.search(r'filename="?([^";]+)"?', resp.headers.get("Content-Disposition", "")).group(1), resp.data
+out["pages"]["k1_pages"] = scenario.normalize(scenario.k1_pages(r3, app.k1v_web, open_page, post3, get3, post_file,
+                                                                app._summaries))
 Path(sys.argv[3]).write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
 """
 

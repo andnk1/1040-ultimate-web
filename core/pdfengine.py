@@ -13,8 +13,8 @@ What the engine's readers use - the list the browser stand-in has to cover:
   doc:   needs_pass, authenticate(pw), metadata["producer"], len(doc), doc[i], for page in doc, page_count,
          with doc: / close(), select(pages), insert_pdf(doc, from_page=, to_page=), save(path), tobytes(...)
   page:  rect.width, get_text(), get_text("words"), get_text("blocks", sort=True), get_text("dict"[, clip=rect]),
-         get_drawings() (fill colour + rect), insert_text(...)
-  the by-hand list PDF (k1v\\ut_entry.py): Story, DocumentWriter, paper_rect, get_text_length
+         get_drawings() (fill colour + rect)
+  (the by-hand list is a page Chrome prints - k1v\\ut_entry.py hand_html - so no PDF is drawn)
 """
 from __future__ import annotations
 
@@ -29,5 +29,5 @@ NAME = _engine.__name__
 open = _engine.open                       # noqa: A001 - same name as PyMuPDF's, on purpose
 
 
-def __getattr__(name):                    # Story, DocumentWriter, paper_rect, get_text_length ... - looked up when used
+def __getattr__(name):                    # any other engine name - looked up when used
     return getattr(_engine, name)

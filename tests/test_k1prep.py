@@ -75,9 +75,6 @@ def test_amended_is_preselected():
 # ------------------------------------------------------------------ the page, the corrections, the export
 @pytest.fixture(scope="module")
 def case(tmp_path_factory):
-    # Waits for its page: these tests drove the desktop app's pages (app.py / the K-1 web file, archived as python-final).
-    # They come back, unchanged in what they check, when that page is converted - design\conversion_plan.md.
-    pytest.skip("waits for the K-1 UT page - conversion plan, page 8")
     k1s = sorted(p.name for p in SRC.glob("*.pdf") if "K-1" in p.name)
     if len(k1s) < 2:
         pytest.skip("the Sample K-1 PDFs aren't there")
@@ -311,8 +308,6 @@ def test_order_by_document(case):
 
 def test_by_hand_list_and_files(case):
     from openpyxl import load_workbook
-    import pymupdf
-    from core.k1v import ut_entry
     c, tok, run = case["c"], case["tok"], case["run"]
     e4 = prep._last4(run["k1s"][0]["E"])
     c.post(f"/k1v/prep/{tok}/save", json={"people": {"tp": e4}})
@@ -330,10 +325,10 @@ def test_by_hand_list_and_files(case):
     assert resp.status_code == 200 and "UT by hand K-1 2025 - Test.xlsx" in resp.headers["Content-Disposition"]
     ws = load_workbook(io.BytesIO(resp.data)).active
     assert ws.freeze_panes == "A5" and ws.max_row == 4 + len(want) and ws["A5"].value == ready[0]["file"]
-    resp = c.get(f"/k1v/prep/{tok}/hand/pdf")
-    assert resp.status_code == 200 and "UT by hand K-1 2025 - Test.pdf" in resp.headers["Content-Disposition"]
-    doc = pymupdf.open("pdf", resp.data)
-    assert doc[0].rect.width > doc[0].rect.height and "Page 1 of" in doc[0].get_text()
+    resp = c.get(f"/k1v/prep/{tok}/hand/print")                  # the PDF: a page Chrome prints (conversion plan, question 5)
+    assert resp.status_code == 200 and "UT by hand K-1 2025 - Test.html" in resp.headers["Content-Disposition"]
+    t = resp.get_data(as_text=True)
+    assert "size: letter landscape" in t and "counter(page)" in t and t.count("<tr>") == 1 + len(want)
     assert c.get(f"/k1v/prep/{tok}/hand/doc").status_code == 404
 
 

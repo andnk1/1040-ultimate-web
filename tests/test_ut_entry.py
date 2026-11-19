@@ -79,10 +79,9 @@ def test_xlsx():
     assert ws["I5"].value in (None, "")
 
 
-def test_pdf():
-    import pymupdf
-    doc = pymupdf.open("pdf", ue.hand_pdf(ITEMS * 40, ue.head("Test 1234", "2025", ITEMS * 40)))
-    assert doc.page_count >= 2 and doc[0].rect.width > doc[0].rect.height                  # landscape, more than one page
-    t = doc[0].get_text()
-    assert "Page 1 of" in t and "Not in Source Data Entry" in t and "-1,235" in t and "Tax year 2025" in t
-    assert f"Page {doc.page_count} of {doc.page_count}" in doc[-1].get_text()
+def test_print_page():
+    """The by-hand list as a page to print (the desktop's PDF; Chrome prints it - conversion plan, question 5)."""
+    t = ue.hand_html(ITEMS * 40, ue.head("Test 1234", "2025", ITEMS * 40))
+    assert "size: letter landscape" in t and 'counter(page) " of " counter(pages)' in t        # landscape, page n of N
+    assert "Not in Source Data Entry" in t and "-1,235" in t and "Tax year 2025" in t and "Test 1234" in t
+    assert t.count("<tr>") == 1 + 2 * 40                                                       # the header + every item

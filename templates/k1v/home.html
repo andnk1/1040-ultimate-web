@@ -79,7 +79,7 @@ table.v td.empty{width:20%}
         if (!j.paths || !j.paths.length) return;
         m.textContent = 'Reading…';
         await fetch('{{ k1v_base }}/files/{{ token }}', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({paths: j.paths})});
-        location.reload();
+        reloadPage();
       });
       </script>
       {% else %}

@@ -69,6 +69,7 @@ button.on{outline:3px solid var(--mint)}
 {%- endmacro %}
 {% set LBL = {"green":"OK","amber":"Confirm","red":"Missing / differs","manual":"Check manually","fyi":"FYI","cant":"No UT entry"} %}
 <div class="wrap">
+  {% if back %}<p class="noprint" style="font-size:.85rem;margin:0 0 10px"><a href="{{ back }}" style="color:#003366;text-decoration:none;font-weight:600">&larr; K-1 Verification</a></p>{% endif %}
   <h1>1040 Verification</h1>
   <p class="subtitle">K-1s: {{ k1name }} · UltraTax Input Screens: {{ retname }} · Each K-1 item checked against what was typed on the UltraTax K-1 screens.</p>
 
@@ -151,7 +152,7 @@ button.on{outline:3px solid var(--mint)}
     if((JSON.stringify(mine)!==JSON.stringify(server) || !same(fl,sflags)) && !sessionStorage.getItem("k1v-synced-{{ token }}")){
       sessionStorage.setItem("k1v-synced-{{ token }}","1");
       fetch("{{ k1v_base }}/manual/{{ token }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({manual:mine,flags:fl})})
-        .then(r=>r.json()).then(j=>{ if(j.changed) location.reload(); });
+        .then(r=>r.json()).then(j=>{ if(j.changed) reloadPage(); });
     }
   }catch(e){}
 })();

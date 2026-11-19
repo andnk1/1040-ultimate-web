@@ -99,6 +99,56 @@ def open_run(r: dict) -> dict:
     return r
 
 
+class Reply:
+    """A page's answer as the tests read it (the desktop's tests used Flask's test client: status_code, data, headers ...)."""
+    def __init__(self, d: dict):
+        self.kind, self.status_code, body = d["kind"], d["status"], d["body"]
+        self.data = body if isinstance(body, bytes) else (json.dumps(body) if d["kind"] == "json" else str(body)).encode("utf-8")
+        self.json = body if d["kind"] == "json" else None
+        self.headers = {"Content-Disposition": f'attachment; filename="{d["filename"]}"'} if d["kind"] == "file" else {}
+
+    def get_data(self, as_text: bool = False):
+        return self.data.decode("utf-8") if as_text else self.data
+
+    def get_json(self):
+        return self.json
+
+
+class Client:
+    """The pages' addresses called the way the page frame calls them (web/py/routes.py) - for the tests that drove the desktop
+    app's pages through Flask's test client. post("/run", data=...) = Run check on the first page (web/py/webapp.py)."""
+    def get(self, url: str) -> Reply:
+        return Reply(page("GET", url))
+
+    def post(self, url: str, json=None, data=None) -> Reply:   # noqa: A002 - Flask's names
+        if url == "/run":
+            from core import runcheck
+            docs = [d["path"] for d in __import__("json").loads(data.get("docs") or "[]") if d.get("on", True)]
+            form = {k: data.get(k, "") for k in ("pyret", "karbon", "clientsum", "utscreens", "wip")}
+            r = open_run(runcheck.run(form, docs, work_dir=_work() / "accounts"))
+            rep = Reply(dict(kind="html", status=302, body="", filename=""))
+            rep.headers["Location"] = f"/summary/{r['token']}"
+            return rep
+        return Reply(page("POST", url, json if json is not None else {}))
+
+
+class App:
+    """What the K-1 tests used from the desktop app: its runs, the K-1 runs, the K-1 box, the summaries, a test client."""
+    def __init__(self):
+        from core import runcheck
+        from core.k1v import runs as k1runs
+        from pages import RUNS
+        self.RUNS, self.k1v_web, self.k1_status, self._summaries = RUNS, k1runs, runcheck.k1_status, runcheck.summaries
+        self.app = self
+
+    def test_client(self) -> Client:
+        return Client()
+
+
+def _app() -> App:
+    return App()
+
+
 def run_case(case: Path, roles: dict, add_k1: bool = True) -> dict:
     """Run check on the case, as the first page does it (core/runcheck.run), and returns the run + what the K-1 section read."""
     from core import runcheck
@@ -591,5 +641,27 @@ def pages_after_edits(case: Path, roles: dict, r: dict) -> dict:
     r2 = open_run(runcheck.run(form, docs, work_dir=_work() / "accounts"))
     inc2, ded2 = runcheck.summaries(r2)
     out["summary_reopened"] = sc.normalize(dict(work=wip_mod.snapshot(r2), income=inc2, deductions=ded2))
+    out["k1_pages"] = sc.normalize(k1_pages_after_edits(case, roles))
     return out
+
+
+def k1_pages_after_edits(case: Path, roles: dict) -> dict:
+    """Step 5: the K-1 pages (tools/parity/scenario.py k1_pages) on a fresh run with no K-1s added, through this app's pages."""
+    from core import runcheck
+    from core.k1v import runs as k1runs
+    r = open_run(run_case(case, roles, add_k1=False))
+    if r.get("wip_path"):                  # the K-1 page saves its work next to the client's: a temporary folder, same name
+        r["wip_path"] = str(Path(tempfile.mkdtemp(prefix="u1040_k1_")) / Path(r["wip_path"]).name)
+
+    def reply(method, url, body=None):
+        rep = page(method, url.format(token=r["token"]), body)
+        assert rep["status"] == 200, (url, rep["status"], str(rep["body"])[:300])
+        return rep
+
+    def as_file(rep):
+        assert rep["kind"] == "file", rep
+        return rep["filename"], rep["body"]
+    return _scenario().k1_pages(r, k1runs, lambda url: page("GET", url.format(token=r["token"]))["status"],
+                                lambda url, body: reply("POST", url, body)["body"], lambda url: as_file(reply("GET", url)),
+                                lambda url, body: as_file(reply("POST", url, body)), runcheck.summaries)
 

@@ -133,7 +133,7 @@ col.gutc{width:28px} col.c-box{width:60px} col.c-code{width:70px} col.c-amt{widt
     <button class="botbtn" type="button" id="savebtn">Save</button>
     <button class="botbtn" type="button" id="exportbtn">Export for UT data entry</button>
     <button class="botbtn hand" type="button" id="handxlsx" hidden>By-hand list (Excel)</button>
-    <button class="botbtn hand" type="button" id="handpdf" hidden>By-hand list (PDF)</button>
+    <button class="botbtn hand" type="button" id="handpdf" hidden>By-hand list (print / PDF)</button>
     <span id="msg"></span>
   </div>
 </div>
@@ -260,7 +260,7 @@ async function save(change, after){
     DATA = j.data; render();
     if (after) after();
     return true;
-  } catch (e) { msg.textContent = "Not saved — is run.bat still running? Reload the page."; msg.className = "err"; return false; }
+  } catch (e) { msg.textContent = "Not saved — the K-1 run may be gone (the app was reloaded). Open the client again."; msg.className = "err"; return false; }
 }
 
 // a line just added: put the cursor in it (the amount under a "see statement" line, the box of a free line)
@@ -310,7 +310,7 @@ async function download(url, fallback, done){
   const msg = document.getElementById("msg"); msg.textContent = ""; msg.className = "";
   try {
     const r = await fetch(url);
-    if (!r.ok) { const t = await r.text(); const m = t.match(/<p>([\s\S]*?)<\/p>/); throw new Error(m ? m[1] : "server said " + r.status); }
+    if (!r.ok) { const t = await r.text(); const m = t.match(/<p[^>]*>([\s\S]*?)<\/p>/); throw new Error(m ? m[1] : "server said " + r.status); }
     const cd = r.headers.get("Content-Disposition") || "", fn = (cd.match(/filename="?([^";]+)"?/) || [])[1] || fallback;
     const a = document.createElement("a"); a.href = URL.createObjectURL(await r.blob()); a.download = fn;
     document.body.appendChild(a); a.click(); a.remove();
@@ -322,9 +322,18 @@ document.getElementById("exportbtn").addEventListener("click", () => download(`$
   const left = DATA.n - DATA.ready - DATA.off;
   return `Exported ${plural(DATA.ready, "K-1")}` + (left ? ` — ${left} not exported (to finish or with a problem)` : "");
 }));
-for (const [id, ext] of [["handxlsx", "xlsx"], ["handpdf", "pdf"]])
-  document.getElementById(id).addEventListener("click", () => download(`${BASE}/prep/${TOKEN}/hand/${ext}`, `UT by hand K-1.${ext}`,
-    () => `By-hand list saved (${plural(DATA.hand.length, "item")})`));
+document.getElementById("handxlsx").addEventListener("click", () => download(`${BASE}/prep/${TOKEN}/hand/xlsx`, "UT by hand K-1.xlsx",
+  () => `By-hand list saved (${plural(DATA.hand.length, "item")})`));
+// the by-hand list to print: opens in a new tab (Print / Save as PDF there) - the browser app can't draw the PDF itself
+document.getElementById("handpdf").addEventListener("click", async () => {
+  const msg = document.getElementById("msg"); msg.textContent = ""; msg.className = "";
+  const r = await fetch(`${BASE}/prep/${TOKEN}/hand/print`);
+  if (!r.ok) { const t = await r.text(), m = t.match(/<p[^>]*>([\s\S]*?)<\/p>/), d = document.createElement("textarea");
+               d.innerHTML = m ? m[1] : "server said " + r.status; msg.textContent = d.value; msg.className = "err"; return; }
+  const tab = window.open(URL.createObjectURL(await r.blob()), "_blank");
+  msg.textContent = tab ? `By-hand list opened in a new tab (${plural(DATA.hand.length, "item")}) — print it or save it as PDF there`
+                        : "Chrome blocked the new tab — allow pop-ups for this site (icon at the right of the address bar).";
+});
 
 render();
 </script>

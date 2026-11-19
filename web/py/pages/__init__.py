@@ -106,6 +106,21 @@ def save_work(r: dict) -> str | None:
     return path
 
 
+def save_k1_work(r: dict, files: list, state) -> str | None:
+    """The K-1 page's own work -> '1040 Ultimate K-1 WIP ….json' next to the client's work in progress (core/wip.py save_k1),
+    then into the client folder like save_work. Nothing is written while the client's work has no place to be saved."""
+    from core import wip as wip_mod
+    path = wip_mod.save_k1(r.get("wip_path"), files, state)
+    if not path:
+        return None
+    try:
+        import webhost                                   # only inside the browser (web/worker.js)
+    except ImportError:
+        return path
+    webhost.save(path, Path(path).read_bytes())
+    return path
+
+
 def not_yet(token: str, on: str, title: str, why: str, lead: str = "Not in the browser app yet.") -> Reply:
     """A step tab whose page isn't in the browser app yet: says so, with the step tabs (templates/not_yet.html).
     lead = the banner's first words (blank for a plain message, e.g. a run that isn't open any more)."""

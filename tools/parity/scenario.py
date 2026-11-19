@@ -94,6 +94,54 @@ def _cells(xlsx: bytes) -> dict:
     return {ws.title: [[c for c in row] for row in ws.iter_rows(values_only=True)] for ws in wb.worksheets}
 
 
+# ---------------------------------------------------------------- step 5: the K-1 pages
+def k1_pages(r: dict, k1runs, open_page, post, get, post_file, summaries) -> dict:
+    """The K-1 pages on a fresh run (no K-1s added yet), the same in both apps, through their own addresses:
+    K-1 Verification opened from the 1040, a statement amount typed on the Interpreter, the totals, K-1 UT (box E matched to
+    the taxpayer, a corrected amount, a tick), Add to Income Summary, then every K-1 download.
+    k1runs = the app's K-1 runs (run_for, RUNS); open_page(address) -> status; post(address, body) -> the reply's data;
+    get / post_file -> (file name, bytes); summaries(r) -> (income, deductions)."""
+    out = {}
+    assert open_page("/k1v/?for={token}") == 200
+    tok, run = k1runs.run_for(r["token"])
+    out["read"] = dict(files=[n for _, n in run["files"]], problems=run["problems"], k1s=run["k1s"], n1065=run["n1065"],
+                       n1120=run["n1120"])
+    if not run["k1s"]:
+        return out
+    k = run["k1s"][0]
+    out["manual"] = post(f"/k1v/manual/{tok}", {"manual": {str(k["page"]): [["13W", "75"]]}, "flags": {}})
+    out["entry_check"] = run.get("result")
+    out["totals"] = post("/k1v/summary", {"k1s": run["k1s"], "token": tok})
+    e4 = re.sub(r"\D", "", k.get("E") or "")[-4:] or "1234"
+    d = post(f"/k1v/prep/{tok}/save", {"people": {"tp": e4}})["data"]
+    row = next((q for x in d["k1s"] for q in x["rows"] if q.get("kind") == "line" and isinstance(q.get("amt"), (int, float))
+                and q.get("amt")), None)
+    if row:
+        d = post(f"/k1v/prep/{tok}/save", {"pcorr": {row["id"]: "777"}})["data"]
+        d = post(f"/k1v/prep/{tok}/save", {"pticks": {row["id"]: True}})["data"]
+    out["k1_ut"] = d
+    ks = [x for x in run["k1s"] if x.get("form") == "1065"]
+    state = {"items": {"x": {"v": True, "c": "seen in the test"}}}
+    if ks:
+        out["add"] = post(f"/k1v/add/{tok}", {"k1s": ks, "state": state})
+        inc, ded = summaries(r)
+        out["after_add"] = dict(package=r.get("k1"), income=inc, deductions=ded)
+    out["state"] = run.get("state")
+    dl = {}
+    wanted = ([f"/k1v/prep/{tok}/export"] if d.get("ready") else []) + ([f"/k1v/prep/{tok}/hand/xlsx"] if d.get("hand") else [])
+    wanted += [f"/k1v/verify/{tok}/excel"] if run.get("result") else []
+    for a in wanted:
+        name, content = get(a)
+        key = a.replace(tok, "<k1run>").lstrip("/")             # (no leading "/": normalize() would shorten it to a name)
+        dl[key] = dict(file=name, content=_cells(content) if name.endswith(".xlsx")
+                       else content.decode("utf-8").replace("\r\n", "\n"))
+    name, content = post_file("/k1v/excel", {"k1s": run["k1s"], "ut": {}, "pc": {}, "items": {}, "filename": run["k1name"],
+                                             "corr": {}})
+    dl["k1v/excel"] = dict(file=name, content=_cells(content))
+    out["downloads"] = dl
+    return out
+
+
 # ---------------------------------------------------------------- what is compared
 _PATHISH = re.compile(r"^(?:[A-Za-z]:[\\/]|/|\\\\).+")
 _CLOCK = re.compile(r"\d{4}-\d\d-\d\d \d\d:\d\d(:\d\d)?")      # "2026-11-17 17:19" - a time stamp

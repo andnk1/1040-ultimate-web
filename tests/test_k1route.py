@@ -11,9 +11,8 @@ import pytest
 
 import harness as h
 
-# Waits for its page: these tests drove the desktop app's pages (app.py / the K-1 web file, archived as python-final).
-# They come back, unchanged in what they check, when that page is converted - design\conversion_plan.md.
-pytestmark = pytest.mark.skip(reason="waits for the K-1 pages - conversion plan, pages 6-7")
+# The desktop's tests (archive python-final), unchanged in what they check: the addresses now go through the browser app's
+# route table (tests/harness.py Client - the page frame's way).
 
 SRC = h.SAMPLES / "Sample"
 

@@ -122,6 +122,7 @@ button:hover{background:#1A4D80}
 </head>
 <body>
 <div class="wrap">
+  {% if back %}<p class="noprint" style="font-size:.85rem;margin:0 0 10px"><a href="{{ back }}" style="color:#003366;text-decoration:none;font-weight:600">&larr; K-1 Verification</a></p>{% endif %}
   <h1 style="font-size:1.3rem;margin:0 0 4px">K-1 Interpretation</h1>
   {% if filename %}<p class="hint noprint" style="margin:0 0 8px">File: {{ filename }}</p>{% endif %}
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
@@ -359,7 +360,7 @@ function applyStmt(){
 }
 // Tabs view (the K-1 box inside the 1040 verification: /k1v/k1/<token>?tabs=1): one K-1 at a time, the tab = first 6 letters of the name.
 // Same cards, same code as the continuous list - only which cards are shown differs.
-const TABS={{ (request.args.get("tabs")=="1")|tojson }};
+const TABS={{ (tabs or false)|tojson }};
 let CURTAB=0;
 function applyTabs(){
   if(!TABS||!K1S.length) return;
@@ -456,7 +457,7 @@ function wire(){
     const pg=a.dataset.page, src=a.dataset.src||"", i=+src.slice(1);
     if(src[0]==="p"){   // added on K-1 Prep: removed there (kept by the server), then the page is read again
       if(!TOKEN||STATIC||location.protocol==="file:") return;
-      k1Flush().then(()=>fetch(BASE+"/prep/"+TOKEN+"/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pline:{op:"del",page:pg,n:i}})})).catch(()=>{}).finally(()=>location.reload());
+      k1Flush().then(()=>fetch(BASE+"/prep/"+TOKEN+"/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pline:{op:"del",page:pg,n:i}})})).catch(()=>{}).finally(()=>reloadPage());
       return;
     }
     if(src[0]==="d"){ (st.stmtDone[pg]||[]).splice(i,1); if(!(st.stmtDone[pg]||[]).length) delete st.stmtDone[pg]; }
@@ -491,7 +492,7 @@ function wire(){
       if(!TOKEN||STATIC||location.protocol==="file:") return;
       await k1Flush();
       await fetch(BASE+"/prep/"+TOKEN+"/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({dup:{[c.dataset.page]:c.checked?c.dataset.v:""}})}).catch(()=>{});
-      location.reload();
+      reloadPage();
     });
   });
   // Clear review marks: instantly un-checks Verified and clears line comments for that partnership
@@ -532,7 +533,7 @@ window.addEventListener("beforeprint",syncPrint);
       if(!d||!d.state||typeof d.state!=="object") throw new Error("not an entries file");
       const other=d.file&&d.file!==FILE?`\n\nNote: these entries were saved for "${d.file}" — this page is "${FILE}".`:"";
       if(!confirm("Replace the entries in this browser with the ones in "+f.name+"?"+other)) {lf.value="";return;}
-      saveState(d.state); k1Flush().finally(()=>location.reload());
+      saveState(d.state); k1Flush().finally(()=>reloadPage());
     }catch(e){ alert("Couldn't read "+f.name+": "+e.message); }
     lf.value="";
   });
@@ -551,7 +552,7 @@ async function downloadExcel(msgEl){
     const blob=await r.blob(); const a=document.createElement("a");
     a.href=URL.createObjectURL(blob); a.download=(FILE.replace(/\.pdf$/i,"")||"K-1")+"_Income_Summary.xlsx";
     document.body.appendChild(a); a.click(); a.remove(); say("");
-  }catch(e){say(`<div class="error">Couldn't build the Excel file (${esc(e.message)}). Is run.bat still running?</div>`);}
+  }catch(e){say(`<div class="error">Couldn't build the Excel file (${esc(e.message)}). Reload the app if it keeps happening.</div>`);}
 }
 window.downloadExcel=downloadExcel;
 // Add to Income Summary: one package of the K-1 lines (amount read -> per document, the totals tab's correction -> corrected
@@ -563,7 +564,7 @@ async function uploadTo1040(msgEl){
   try{
     const r=await fetch(BASE+"/add/"+TOKEN,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({k1s:COUNTED(),state:loadState()})});
     const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||("server said "+r.status));
-    say(`<p class="hint"><b>Added to the Income Summary ${esc(String(j.at).slice(11))}:</b> ${j.k1s} K-1${j.k1s===1?"":"s"}, ${j.lines} line${j.lines===1?"":"s"} — refresh the 1040 page.</p>`);
+    say(`<p class="hint"><b>Added to the Income Summary ${esc(String(j.at).slice(11))}:</b> ${j.k1s} K-1${j.k1s===1?"":"s"}, ${j.lines} line${j.lines===1?"":"s"} — the Summary shows them (← K-1 Verification, then ← 1040 Ultimate).</p>`);
   }catch(e){say(`<div class="error">Couldn't add (${esc(e.message)}).</div>`);}
 }
 const ub=document.getElementById("upbtn"); if(ub) ub.addEventListener("click",()=>uploadTo1040(document.getElementById("xlmsg")));

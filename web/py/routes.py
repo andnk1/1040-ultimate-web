@@ -12,6 +12,7 @@ converted one at a time (design/conversion_plan.md). After a save in AUTOSAVE th
 """
 from __future__ import annotations
 
+import inspect
 import json
 import re
 from urllib.parse import unquote
@@ -28,7 +29,7 @@ ROUTES = [
     ("GET",  "/ai/<token>",                         ai.doc_review),               # 3 · AI Doc Review (waits for the key)
     ("GET",  "/ai-return/<token>",                  ai.return_review),            # 4 · AI Return Review
     ("GET",  "/ai-advisory/<token>",                ai.advisory),                 # 5 · AI Advisory
-    ("GET",  "/k1v/",                               k1.home),                     # K-1 Verification (not yet)
+    ("GET",  "/k1v/",                               k1.home),                     # K-1 Verification (?for=<run>: the client's)
     ("GET",  "/open",                               documents.open_document),     # a source document in a new tab
     # the Summary's saves (each followed by saving the work in progress - AUTOSAVE below)
     ("POST", "/edits/<token>",                      summary.save_edits),          # corrected amounts, Fed. w/h
@@ -52,6 +53,21 @@ ROUTES = [
     ("GET",  "/sche/<token>/<i>/workpaper.csv",     summary.schedule_e_csv),      # Schedule E box → a property's workpaper
     ("GET",  "/income/<token>/excel",               summary.income_excel),        # Income and Deduction Summary (Excel)
     ("POST", "/k1/<token>/remove",                  summary.k1_remove),           # K-1 box → Remove
+    # the K-1 pages (web/py/pages/k1.py) - <token> here is the K-1 run's own token
+    ("POST", "/k1v/",                               k1.read_on_its_own),          # K-1 Verification on its own → Read
+    ("POST", "/k1v/files/<token>",                  k1.add_files),                # K-1 Verification → Add K-1 PDFs…
+    ("GET",  "/k1v/k1/<token>",                     k1.interpreter),              # K-1 Interpreter
+    ("POST", "/k1v/manual/<token>",                 k1.statement_amounts),        # Interpreter: statement amounts, 11 S ticks
+    ("POST", "/k1v/summary",                        k1.totals),                   # Interpreter: Calculate totals
+    ("POST", "/k1v/add/<token>",                    k1.add_to_income_summary),    # Interpreter → Add to Income Summary
+    ("POST", "/k1v/state/<token>",                  k1.save_state),               # Interpreter: its ticks, comments, corrections
+    ("POST", "/k1v/excel",                          k1.interpreter_excel),        # Interpreter → Download Excel summary
+    ("GET",  "/k1v/verify/<token>",                 k1.entry_check),              # K-1 entry check
+    ("GET",  "/k1v/verify/<token>/excel",           k1.entry_check_excel),        # K-1 entry check → Download Excel
+    ("GET",  "/k1v/prep/<token>",                   k1.k1_ut),                    # K-1 UT
+    ("POST", "/k1v/prep/<token>/save",              k1.k1_ut_save),               # K-1 UT: every change
+    ("GET",  "/k1v/prep/<token>/export",            k1.ut_export),                # K-1 UT → Export for UT data entry (CSV)
+    ("GET",  "/k1v/prep/<token>/hand/<fmt>",        k1.by_hand),                  # K-1 UT → the by-hand list (Excel / print)
 ]
 
 # after these saves the work in progress is saved (the desktop app did the same after every change)
@@ -88,8 +104,8 @@ def handle(method: str, url: str, body: str = "") -> dict:
         else:
             if fn is documents.open_document:          # /open?path=...: the path is in the query
                 parts = {"path": unquote(query.partition("path=")[2].split("&")[0])}
-            elif fn is k1.home:
-                parts = {"query": query}
+            elif "query" in inspect.signature(fn).parameters:   # a page that reads ?… (K-1 Verification ?for=<run>)
+                parts["query"] = query
             if method == "POST":
                 parts["sent"] = json.loads(body) if body else {}
             reply = fn(**parts)
@@ -98,6 +114,7 @@ def handle(method: str, url: str, body: str = "") -> dict:
     except NotFound as e:
         reply = (Reply("json", {"error": str(e)}, status=404) if method == "POST"
                  else not_yet("", "", "Can't show this", str(e), lead=""))
+        reply.status = 404
     return dict(kind=reply.kind, status=reply.status, body=reply.body, filename=reply.filename, mime=reply.mime,
                 inline=reply.inline, note=reply.note)
 

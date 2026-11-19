@@ -171,36 +171,25 @@ td.done { border: 1px solid #9AA3B2; }
 """
 
 
-def hand_pdf(items: list, h: dict) -> bytes:
-    """Landscape (US letter), page numbers at the bottom."""
-    from core import pdfengine
+def hand_html(items: list, h: dict) -> str:
+    """The by-hand list as a page to print (landscape, US letter; Chrome: Print -> Save as PDF). The desktop drew a PDF
+    with PyMuPDF; MuPDF.js in the browser can't turn HTML into a PDF, so Chrome's printing does it (conversion plan,
+    question 5). Chrome prints the file name / client at the bottom left and "Page n of N" at the bottom right."""
     rows = "".join(
         f"<tr><td>{_esc(it['file'])}</td><td>{_esc(it['name'])}</td><td>{_esc(it['ein'])}</td><td>{_esc(it['box'])}</td>"
         f"<td>{_esc(it['code'])}</td><td>{_esc(it['desc'])}</td>"
         f"<td class='n'>{_esc(_whole(it['amt']) if isinstance(it['amt'], (int, float)) else it['amt'])}</td>"
         f"<td>{_esc(it['why'])}</td><td class='done'>&#160;</td></tr>" for it in items)
-    html = (f"<h1>{_esc(('To enter by hand in UltraTax - K-1 ' + str(h['year'])).strip())}</h1><p class='h'>{_esc(_head_line(h))}</p>"
-            "<table><tr><th>Document</th><th>Partnership</th><th>EIN</th><th>Box</th><th>Code</th><th>Description</th>"
-            f"<th class='n'>Amount</th><th>Why</th><th>Done</th></tr>{rows}</table>")
-    page = pdfengine.paper_rect("letter-l")
-    where = page + (36, 36, -36, -46)
-    buf = io.BytesIO()
-    story = pdfengine.Story(html=html, user_css=_CSS)
-    w = pdfengine.DocumentWriter(buf)
-    more = True
-    while more:
-        dev = w.begin_page(page)
-        more, _ = story.place(where)
-        story.draw(dev)
-        w.end_page()
-    w.close()
-    doc = pdfengine.open("pdf", buf.getvalue())
-    foot = " · ".join(x for x in (f"UT by hand K-1 {h['year']}".strip(), h["client"]) if x)
-    for i, p in enumerate(doc):
-        p.insert_text((36, page.height - 24), foot, fontsize=7.5, color=(0.42, 0.45, 0.5))
-        t = f"Page {i + 1} of {doc.page_count}"
-        p.insert_text((page.width - 36 - pdfengine.get_text_length(t, fontsize=7.5), page.height - 24), t, fontsize=7.5,
-                      color=(0.42, 0.45, 0.5))
-    out = doc.tobytes(garbage=3, deflate=True)
-    doc.close()
-    return out
+    title = ("To enter by hand in UltraTax - K-1 " + str(h["year"])).strip()
+    foot = " · ".join(x for x in (f"UT by hand K-1 {h['year']}".strip(), h["client"]) if x).replace('"', "'")
+    page_css = ("@page { size: letter landscape; margin: 0.5in 0.5in 0.64in 0.5in;"
+                f' @bottom-left {{ content: "{foot}"; font: 7.5pt sans-serif; color: #6B7280; }}'
+                ' @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 7.5pt sans-serif; color: #6B7280; } }'
+                " .bar { margin: 0 0 12pt 0; } .bar button { font-size: 10pt; padding: 5pt 14pt; cursor: pointer; }"
+                " @media print { .bar { display: none; } } thead { display: table-header-group; }")
+    return ("<!doctype html><html><head><meta charset='utf-8'>"
+            f"<title>{_esc(title)}</title><style>{_CSS}{page_css}</style></head><body>"
+            "<div class='bar'><button onclick='window.print()'>Print / Save as PDF</button></div>"
+            f"<h1>{_esc(title)}</h1><p class='h'>{_esc(_head_line(h))}</p>"
+            "<table><thead><tr><th>Document</th><th>Partnership</th><th>EIN</th><th>Box</th><th>Code</th><th>Description</th>"
+            f"<th class='n'>Amount</th><th>Why</th><th>Done</th></tr></thead><tbody>{rows}</tbody></table></body></html>")

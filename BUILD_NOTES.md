@@ -219,6 +219,43 @@ section titles — written for the desktop app: its rules stay, its desktop deta
     already kept it). The summary rows carry `src_path` / `src_page` (`core\income.py` `_src`). No amount changed: the
     archive check leaves the two new fields out (written down as new, not different) and compares everything else.
   - Not given a page yet: the list-layout W-2 / 1099-R (mock files only) — their names open the document at its start.
+- **2026-11-18 — step 5 built: the K-1 pages** (Lady: "the client may have K-1s and without it the verifier won't work.
+  Proceed to step 5"; Verify return, step 4, comes after):
+  - The 14 addresses of the desktop's K-1 pages file moved unchanged into `web\py\pages\k1.py` (K-1 Verification, the
+    Interpreter with its statement amounts / totals / Add to Income Summary / Excel, the K-1 entry check + its Excel, K-1 UT
+    with its saves, the UT data entry CSV and the by-hand list). What the desktop app plugged in ("hooks") is now four plain
+    functions there: Add to Income Summary -> the client's run (+ the work in progress saved), the K-1 page's work -> the
+    K-1 work file next to the work in progress (written into the client folder, `pages\__init__.py` `save_k1_work`), the
+    taxpayer / spouse SSN from the prior-year return, the client's name for the file names.
+  - **The K-1 pages open inside the app** (conversion plan, question 3 - the run lives in this tab): K-1 Verification has
+    "← 1040 Ultimate (this client)"; the Interpreter and the entry check got "← K-1 Verification" (the desktop opened them in
+    new tabs, so they had none); K-1 UT already had it. The Interpreter's totals still open in their own tab, as before.
+  - **The by-hand list as PDF** is now a page in a new tab with **Print / Save as PDF** (Chrome prints it: landscape letter,
+    the list name + client at the bottom left, "Page n of N" at the bottom right) - MuPDF.js can't draw a PDF from HTML
+    (question 5). The button says "By-hand list (print / PDF)". `ut_entry.hand_pdf` replaced by `hand_html`; the PDF door
+    no longer needs Story / DocumentWriter.
+  - **Add K-1 PDFs…** opens the browser's file window (several PDFs at once). A picked file that is one of the client's
+    documents keeps its place in the client folder, so the K-1 work file finds it again next time; a file from elsewhere
+    is found only while the app is open (pick it again after a reload).
+  - **The K-1 reader on its own** (`/k1v/` with no client) is kept: its form's files are copied into the tab and read there
+    (`web\index.html` u1040.submit). Its Interpreter's "←" goes back to an empty reader (the result isn't kept).
+  - Frame changes: a form on a page, `navigator.sendBeacon` (the Interpreter saves with it when it is left) and downloads'
+    file names now go to the app; `location.reload()` in the K-1 templates → `reloadPage()`; the template's
+    `request.args` (Interpreter `?tabs=1`) is passed in by the page function. Messages that said "is run.bat running?"
+    reworded; after Add to Income Summary: "the Summary shows them".
+  - **Proven against the archive** (`tools\parity\scenario.py` `k1_pages`, both sample clients, a fresh run): the K-1s read,
+    a statement amount typed on the Interpreter, the totals, K-1 UT (box E matched, a corrected amount, a tick), Add to
+    Income Summary (the package and the income / deduction summary after it), the K-1 page's saved work, and every K-1
+    download (the CSV exactly, the Excel files cell by cell) - **the same as python-final on both
+    sample clients** (0 differences; K-1_Sample: 32 K-1s, 26 Ready, 169 by-hand lines, the CSV and both Excel files).
+    Full suite: 55 passed, the one known failure (K-1_Sample has no answer key).
+  - Tests back: `tests\test_k1route.py` (6) and `tests\test_k1prep.py` (13), unchanged in what they check - the addresses
+    go through the app's route table (`tests\harness.py` Client, the page frame's way). The by-hand PDF test checks the
+    print page instead.
+  - Tried in the browser (Sample): Run check → K-1 box → K-1 Verification (3 K-1 PDFs) → Interpreter → Add to Income
+    Summary (3 K-1s, 3 lines) → back to the Summary: "K-1s added" with the lines; K-1 UT with its refusals shown ("Nothing
+    to export - no K-1 is Ready"); the reader on its own with a picked K-1. The new tabs (totals, by-hand print page) are
+    for Lady to try in Chrome (the test pane blocks pop-ups).
 - **Phase 1 built (2026-11-16, in the old folder):**
   - `core\pdfengine.py` is the one PDF door: nothing else in `core\` imports PyMuPDF (`pdfutil.py`, `utscreens.py`,
     `ai\docs.py`, `k1v\ut_entry.py` go through it). Its header lists what the browser stand-in (MuPDF.js) must cover.
@@ -245,7 +282,7 @@ section titles — written for the desktop app: its rules stay, its desktop deta
   - **PDF stand-in:** `web\py\pymupdf_js.py` + `web\mupdf_bridge.mjs`. Rules found by comparing with PyMuPDF: a turned page
     is read with the turn taken off (as PyMuPDF does); PyMuPDF's own character box (font ascender - descender < 1 -> the box
     is one font size high; stretched text counted); the word box carry-over stays inside one block; "dict" leaves out lines
-    with no width. Not covered yet: the by-hand list PDF (`ut_entry.hand_pdf`), `insert_text`.
+    with no width. Not covered: `insert_text`; the by-hand list PDF is a print page since step 5 (no PDF drawn).
   - **Checked on the two sample folders (35 PDFs):** text, words, blocks and "dict" lines identical to the desktop on every
     page; filled shapes the same except rounding in the last decimal and a slightly different grey on a few pages (colour
     conversion; Karbon's pink bubbles read the same: 46 questions, same answers). The Sample case in the browser = its
@@ -297,8 +334,8 @@ section titles — written for the desktop app: its rules stay, its desktop deta
   pending item 2 of the 2026-11-05 list.
 
 ## Open questions
-- The conversion plan's five questions (Drive links, master checklist, K-1 pages in the same window, more sample clients,
-  the by-hand PDF) — `design\conversion_plan.md`.
+- The conversion plan's open questions (Drive links, master checklist, more sample clients; K-1 pages inside the app and
+  the by-hand print page were built in step 5) — `design\conversion_plan.md`.
 - The copied K-1 UT mock-up `design\k1_prep_mockup.html` has real partnership names / EINs and partner digits:
   kept local, not in git.
 - One start file for all the apps, or each started on its own? — history: "Masking and printing = separate apps".

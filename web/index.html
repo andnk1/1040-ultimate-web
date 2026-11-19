@@ -392,7 +392,15 @@ const SHIM = `<script>(() => {
     e.preventDefault();
     parent.u1040.go(h);
   });
-  addEventListener("submit", e => { e.preventDefault(); parent.u1040.toast("Not in the browser app yet."); }, true);
+  // a form (K-1 Verification on its own → Read): its files and fields go to the app instead of the server
+  addEventListener("submit", e => { e.preventDefault(); parent.u1040.submit(e.target); }, true);
+  // navigator.sendBeacon (the K-1 Interpreter saves its work with it when the page is left) -> the app, like a save
+  const beacon = navigator.sendBeacon && navigator.sendBeacon.bind(navigator);
+  navigator.sendBeacon = (u, b) => {
+    if (!own(u)) return beacon(u, b);
+    Promise.resolve(b instanceof Blob ? b.text() : String(b || "")).then(t => parent.u1040.fetch(u, { method: "POST", body: t }));
+    return true;
+  };
   window.reloadPage = () => parent.u1040.reload();    // the templates call these where the desktop reloaded / navigated
   window.addMoreDocs = kind => parent.u1040.addMore(kind);   // Document inventory → Add more documents…
   window.goTo = url => { const u = new URL(url, location.href); parent.u1040.go(u.pathname + u.search); };
@@ -425,7 +433,8 @@ window.u1040 = {
     if (method === "POST" && /^\/wip\/[0-9a-f]+\/folder$/.test(url)) body = JSON.stringify(await chooseFolder());
     const r = await ask({ type: "request", method, url, body });
     if (r.note) toast(r.note);
-    if (r.kind === "file") return new Response(new Blob([r.body], { type: r.mime }), { status: r.status });
+    if (r.kind === "file") return new Response(new Blob([r.body], { type: r.mime }), { status: r.status,
+      headers: { "Content-Type": r.mime, "Content-Disposition": `${r.inline ? "inline" : "attachment"}; filename="${r.filename}"` } });
     const text = r.kind === "json" ? JSON.stringify(r.body) : String(r.body);
     return new Response(text, { status: r.status, headers: { "Content-Type": r.kind === "json" ? "application/json" : "text/html" } });
   },
@@ -438,25 +447,54 @@ window.u1040 = {
     if (r.kind === "file") return download(r.body, r.filename, r.mime);
     toast(r.kind === "error" ? "Something went wrong: " + r.body : "Not in the browser app yet.");
   },
+  // a form on a page (K-1 Verification on its own): each picked file is copied onto the in-memory drive, then the form's
+  // address gets {"files": {field: [paths]}, "fields": {field: text}} - the page it answers is shown. Nothing is uploaded.
+  async submit(form) {
+    const url = new URL(form.getAttribute("action") || currentUrl, "http://x").pathname;
+    const sent = { files: {}, fields: {} };
+    for (const [name, v] of new FormData(form)) {
+      if (Object.prototype.toString.call(v) === "[object File]") {   // (a File of the page's frame: not this window's File class)
+        if (!v.name) continue;
+        const path = `/client/picked/upload/${++uploads}/${v.name}`;
+        await ask({ type: "putfile", path, file: v });
+        (sent.files[name] = sent.files[name] || []).push(path);
+      } else sent.fields[name] = v;
+    }
+    toast("Reading…");
+    const r = await ask({ type: "request", method: "POST", url, body: JSON.stringify(sent) });
+    if (r.kind === "html") return showPage(r.body, url === "/k1v/" ? "/k1v/" : currentUrl);
+    toast(r.kind === "error" ? "Something went wrong: " + r.body : "Not in the browser app yet.");
+  },
 };
 // Browse… on a page (Add P&L…, Import Schedule E sheet…): the desktop opened a Windows file window and sent the file's path.
 // Here the browser's file window opens; the picked file is copied onto the in-memory drive and its path there is answered,
 // so the page's code (static/schc.js, static/sche.js) goes on as before. Nothing leaves the computer.
-const BROWSE_TYPES = { pl: ".csv,.xlsx,.xlsm,.pdf", sheet: ".xlsx,.csv" };
+// "files" = several PDFs at once (K-1 Verification → Add K-1 PDFs…).
+const BROWSE_TYPES = { pl: ".csv,.xlsx,.xlsm,.pdf", sheet: ".xlsx,.csv", files: ".pdf" };
 let uploads = 0;
 function browseFile(kind) {
+  const given = window.u1040Test.nextPick;             // (automated checks only: the files the file window would give)
+  if (given) { window.u1040Test.nextPick = null; return putAll(given); }
   return new Promise(resolve => {
-    const input = Object.assign(document.createElement("input"), { type: "file", accept: BROWSE_TYPES[kind] || "" });
-    input.onchange = async () => {
-      const f = input.files[0];
-      if (!f) return resolve({ paths: [], path: "" });
-      const path = `/client/picked/upload/${++uploads}/${f.name}`;
-      await ask({ type: "putfile", path, file: f });
-      resolve({ paths: [path], path });
-    };
+    const input = Object.assign(document.createElement("input"),
+                                { type: "file", accept: BROWSE_TYPES[kind] || "", multiple: kind === "files" });
+    input.onchange = () => putAll([...input.files]).then(resolve);
     input.oncancel = () => resolve({ paths: [], path: "" });
     input.click();
   });
+}
+
+// A picked file that is one of the client's documents keeps that document's path (so the K-1 work file finds it again
+// when the client folder is opened next time); any other file gets its own place on the in-memory drive.
+async function putAll(files) {
+  const paths = [];
+  for (const g of files) {
+    const f = g.file || g, hit = DOCS.find(d => same(d.file, f));
+    const path = hit ? docPath(hit) : `/client/picked/upload/${++uploads}/${f.name}`;
+    await ask({ type: "putfile", path, file: f });
+    paths.push(path);
+  }
+  return { paths, path: paths[0] || "" };
 }
 
 // "Choose a folder…" (the Summary, when there is no folder to save the work in): Chrome's folder window, with write access
