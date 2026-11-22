@@ -145,13 +145,16 @@ def k1_pages(r: dict, k1runs, open_page, post, get, post_file, summaries) -> dic
 # ---------------------------------------------------------------- what is compared
 _PATHISH = re.compile(r"^(?:[A-Za-z]:[\\/]|/|\\\\).+")
 _CLOCK = re.compile(r"\d{4}-\d\d-\d\d \d\d:\d\d(:\d\d)?")      # "2026-11-17 17:19" - a time stamp
+# the by-hand list's heading "Tax year 2025 · 11/18/2026 · 169 items": the middle date is the day the list was made
+_MADE_ON = re.compile(r"^(Tax year \d{4}\W+)\d{1,2}/\d{1,2}/\d{4}(\W)")
 
 
 def normalize(value):
     """What both apps keep, made comparable: file paths become file names (the archive ran from C:\\..., this app from its
-    own folders); clock times are left out (when the work was saved, when the K-1s were added); src_path / src_page are left
-    out - new in the browser app (each summary row's link to the page its amount was read on, 2026-11-17), the archive has
-    no such field. Everything else must be the same."""
+    own folders); clock times are left out (when the work was saved, when the K-1s were added), and so is the day the
+    by-hand list was made (its heading - otherwise the check fails on any day but the one the reference was made);
+    src_path / src_page are left out - new in the browser app (each summary row's link to the page its amount was read on,
+    2026-11-17), the archive has no such field. Everything else must be the same."""
     def walk(v):
         if isinstance(v, dict):
             return {walk(k) if isinstance(k, str) else k: walk(x) for k, x in v.items()
@@ -160,6 +163,8 @@ def normalize(value):
             return [walk(x) for x in v]
         if isinstance(v, str) and _PATHISH.match(v):
             return v.replace("\\", "/").rsplit("/", 1)[-1]
+        if isinstance(v, str) and _MADE_ON.match(v):
+            return _MADE_ON.sub(r"\1(date)\2", v)
         return v
     return walk(json.loads(json.dumps(value, default=str)))
 

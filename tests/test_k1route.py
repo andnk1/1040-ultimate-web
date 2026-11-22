@@ -46,7 +46,8 @@ def test_nothing_counts_before_add(case):
     st = a.k1_status(r)
     assert st["found"] and not st["pkg"]
     html = case["c"].get(f"/summary/{r['token']}").get_data(as_text=True)
-    assert "K-1 documents found — not added yet" in html and f"/k1v/?for={r['token']}" in html and "k1frame" not in html
+    assert "K-1 documents found, review K-1's tab" in html and f"/k1v/?for={r['token']}" in html and "k1frame" not in html
+    assert html.count("K-1 documents found") == 1          # in the K-1 box only - not a problem, so not in the box at the top
     assert all("K-1 section" in (d.get("note") or "") for d in r["inv"]["docs"] if d.get("route") == "k1v")
 
 

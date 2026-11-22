@@ -29,7 +29,7 @@ ROUTES = [
     ("GET",  "/ai/<token>",                         ai.doc_review),               # 3 · AI Doc Review (waits for the key)
     ("GET",  "/ai-return/<token>",                  ai.return_review),            # 4 · AI Return Review
     ("GET",  "/ai-advisory/<token>",                ai.advisory),                 # 5 · AI Advisory
-    ("GET",  "/k1v/",                               k1.home),                     # K-1 Verification (?for=<run>: the client's)
+    ("GET",  "/k1v/",                               k1.home),                     # K-1s (?for=<run>: the client's K-1 PDFs)
     ("GET",  "/open",                               documents.open_document),     # a source document in a new tab
     # the Summary's saves (each followed by saving the work in progress - AUTOSAVE below)
     ("POST", "/edits/<token>",                      summary.save_edits),          # corrected amounts, Fed. w/h
@@ -54,8 +54,7 @@ ROUTES = [
     ("GET",  "/income/<token>/excel",               summary.income_excel),        # Income and Deduction Summary (Excel)
     ("POST", "/k1/<token>/remove",                  summary.k1_remove),           # K-1 box → Remove
     # the K-1 pages (web/py/pages/k1.py) - <token> here is the K-1 run's own token
-    ("POST", "/k1v/",                               k1.read_on_its_own),          # K-1 Verification on its own → Read
-    ("POST", "/k1v/files/<token>",                  k1.add_files),                # K-1 Verification → Add K-1 PDFs…
+    ("POST", "/k1v/files/<token>",                  k1.add_files),                # K-1s → Add K-1 PDFs…
     ("GET",  "/k1v/k1/<token>",                     k1.interpreter),              # K-1 Interpreter
     ("POST", "/k1v/manual/<token>",                 k1.statement_amounts),        # Interpreter: statement amounts, 11 S ticks
     ("POST", "/k1v/summary",                        k1.totals),                   # Interpreter: Calculate totals

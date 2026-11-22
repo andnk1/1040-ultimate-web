@@ -93,7 +93,7 @@ col.gutc{width:28px} col.c-box{width:60px} col.c-code{width:70px} col.c-amt{widt
 </head>
 <body>
 <div class="wrap">
-  <p class="back"><a href="{{ k1v_base }}/?for={{ owner }}">&larr; K-1 Verification</a></p>
+  <p class="back"><a href="{{ k1v_base }}/?for={{ owner }}">&larr; K-1s</a></p>
   <h1>K-1 UT</h1>
   <div class="banner" id="banner"></div>
 
@@ -186,7 +186,7 @@ function row(k, r){
       <td class="n">STMT</td><td></td>${prob}</tr>`;
   if (r.kind === "interp")                                 // typed on the K-1 Interpreter: changed there
     return `<tr class="${cls}">${tick}<td class="box">${esc(r.box)}</td><td><b>${esc(r.code)}</b></td><td>${esc(r.desc)}</td>
-      <td class="n"></td><td class="n"><input class="amt user" readonly value="${esc(fmt(r.eff))}" title="Typed on the K-1 Interpreter"></td>${prob}</tr>`;
+      <td class="n"></td><td class="n"><input class="amt user" readonly value="${esc(fmt(r.eff))}" title="Typed on K-1 Verification"></td>${prob}</tr>`;
   if (r.kind === "add") {
     const ids = `data-page="${pg}" data-n="${r.n}"`;
     const amt = `<input class="amt user pamt" ${ids} data-fid="a${esc(r.id)}" value="${esc(num(r.typed) == null || Number.isNaN(num(r.typed)) ? r.typed : fmt(num(r.typed)))}" placeholder="Amount"><button class="rm" type="button" ${ids} title="Remove this line">×</button>`;

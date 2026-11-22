@@ -1,14 +1,15 @@
-"""k1.py - the K-1 section's pages: K-1 Verification (the run's K-1 PDFs), the K-1 Interpreter, the K-1 entry check, K-1 UT.
+"""k1.py - the K-1 section's pages: K-1s (the run's K-1 PDFs, a tab per form), the K-1 Interpreter, the K-1 entry check, K-1 UT.
 
 Moved from the desktop app's K-1 pages file (archive python-final, core/k1v/web.py): each address does what it did there.
 The engine is core/k1v/ (the reader, the code list, the K-1 runs, K-1 UT's rules). In the browser app the K-1 pages open
 inside the app (the desktop opened new browser tabs - conversion plan, question 3); each page has a "←" link back.
 
-    /k1v/?for=<1040 run>    the client's K-1 run (made now if it has none yet): its K-1 PDFs + Add K-1 PDFs…, then open:
+    /k1v/?for=<1040 run>    K-1s: the client's K-1 run (made now if it has none yet): its K-1 PDFs + Add K-1 PDFs…, then open:
     /k1v/k1/<token>         K-1 Interpreter (entry guide, statement amounts, totals, Add to Income Summary)
-    /k1v/verify/<token>     K-1 entry check: every K-1 item vs what was typed in UltraTax (the UT input screens print)
+    /k1v/verify/<token>     K-1 entry check: every K-1 item vs what was typed in UltraTax (the UT input screens print) -
+                            no button any more: it moves to Verify return (brief 2026-11-21); the page works until then
     /k1v/prep/<token>       K-1 UT: box E, corrected amounts, Bot / By hand, the UT data entry CSV, the by-hand list
-    /k1v/                   the K-1 reader on its own (K-1 PDFs picked on the page; nothing goes to an income summary)
+    /k1v/                   (no ?for=) a note: the K-1s open from a client's Summary - the stand-alone reader was dropped
 
 The K-1 run belongs to the client's 1040 run ("owner" = the 1040 run's token). What connects the two (on the desktop these
 were "hooks" the 1040 app set):
@@ -21,7 +22,6 @@ from __future__ import annotations
 
 import html
 import re
-import uuid
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -29,10 +29,8 @@ from core import runcheck
 from core.k1v import handoff, k1_codes, prep, ut_entry
 from core.k1v import runs as k1runs
 from core.k1v.codes_1120s import BOXES_1120S
-from core.k1v.k1_parser import parse_pdf
 from core.k1v.k1_rules import ORDER, RULES
 from core.k1v.k1_summary import build_summary, write_xlsx
-from core.k1v.screen_parser import parse_screens
 from core.k1v.screen_verify import verify_screens
 from core.k1v.verify1040_excel import write_verification_xlsx
 
@@ -63,7 +61,7 @@ def _run(token: str) -> dict:
 
 
 def _back(run) -> str:
-    """Where the Interpreter's and the entry check's "←" link goes: the client's K-1 Verification page."""
+    """Where the Interpreter's, K-1 UT's and the entry check's "←" link goes: the client's K-1s page."""
     return f"{BASE}/?for={run['owner']}" if run.get("owner") else f"{BASE}/"
 
 
@@ -139,7 +137,10 @@ def _report_ctx(run=None, error=None, filename=None, token=None):
                 filename=filename or (run["k1name"] if run else None), error=error, static=False,
                 codes=k1_codes.dropdown(), code_boxes=k1_codes.CODE_BOXES, token=token, owner=(run or {}).get("owner"),
                 state=state, dups=prep.find_copies(dicts, (state or {}).get("dup")), plines=prep.plines_entries(state),
-                back=_back(run) if run else f"{BASE}/")
+                back=_back(run) if run else f"{BASE}/",
+                # the run's K-1 PDFs [path, name]: a K-1's page number says which one (2nd file = 1001+, 3rd = 2001+) - its
+                # name on the page opens that PDF at that K-1's page
+                docs=[[p, n] for p, n in (run or {}).get("files") or []])
 
 
 def _prep_data(run):
@@ -149,14 +150,41 @@ def _prep_data(run):
     return prep.build(run, people, k1runs.file_ids(run), client=re.sub(r"^\d{4}\s*-\s*", "", label))
 
 
-# ---------------------------------------------------------------- K-1 Verification (the run's page)
+# ---------------------------------------------------------------- the K-1s page (the run's page)
+# One tab per K-1 form, each the same section (templates/k1v/home.html, one macro used twice), so 1120-S can later get
+# everything 1065 has without redoing the page. "k1ut" = K-1 UT is built for that form (1065 only so far).
+FORM_TABS = [dict(key="k1065", form="1065", title="K-1 1065", k1ut=True),
+             dict(key="s1120", form="1120-S", title="K-1 1120-S", k1ut=False)]
+
+
+def _form_tabs(run) -> list:
+    """What each form's tab shows: how many K-1s of that form were read, and the K-1 PDFs they came from.
+    The K-1s' page numbers say which file they came from (the 2nd file's pages are 1001+, the 3rd's 2001+ ...), so a file is
+    listed on the tab of the K-1s found in it - a file with both kinds on both tabs. A file with no K-1 read (not read, a
+    password, no K-1 pages) is listed on both tabs, so it isn't missed."""
+    files = run.get("files") or []
+    forms_in = {n: [] for n in range(len(files))}                # file number -> the forms of the K-1s read from it
+    for k in run.get("k1s") or []:
+        forms_in.setdefault(k["page"] // 1000, []).append(k.get("form"))
+    out = []
+    for t in FORM_TABS:
+        listed = []
+        for n, (path, name) in enumerate(files):
+            got = forms_in.get(n) or []
+            if t["form"] in got or not got:
+                listed.append(dict(path=path, name=name, k1s=got.count(t["form"]), none_read=not got))
+        out.append(dict(t, count=sum(1 for k in run.get("k1s") or [] if k.get("form") == t["form"]), files=listed))
+    return out
+
+
 def home(query: str = ""):
-    """?for=<1040 run>: that client's K-1 run (made now if it has none yet - the K-1 PDFs found among the client's
-    documents were read by Run check). Without it: the K-1 reader on its own (pick K-1 PDFs on the page)."""
+    """The K-1s page: ?for=<1040 run> = that client's K-1 run (made now if it has none yet - the K-1 PDFs found among the
+    client's documents were read by Run check). Without ?for= there is nothing to show: the K-1s are opened only from a
+    client's Summary (the stand-alone K-1 reader was dropped - brief 2026-11-21)."""
     q = parse_qs(query)
     owner, tab = (q.get("for") or [""])[0], (q.get("tab") or [None])[0]
     if not owner:
-        return page(render("k1v/home.html", **_ctx(run=None, token=None, error=None, tab=tab, owner=None)))
+        return page(render("k1v/home.html", **_ctx(run=None, token=None, tab=None, owner=None, tabs=[])))
     if owner not in RUNS_1040:
         raise NotFound("This run isn't open any more (the app was reloaded). Go back and click Run check again.")
     token, run = k1runs.run_for(owner)
@@ -164,47 +192,9 @@ def home(query: str = ""):
         ut = RUNS_1040[owner].get("ut_path") or ""
         token, _, _ = k1runs.make_run([], ut or None, owner=owner)
         run = k1runs.RUNS[token]
-    return page(render("k1v/home.html", **_ctx(run=run, token=token, error=None, tab=tab, owner=owner)))
-
-
-def read_on_its_own(sent: dict):
-    """The K-1 reader on its own: the form on /k1v/ (K-1 PDFs, a password, the UT input screens) -> a K-1 run with no 1040.
-    sent = {"files": {field: [paths on the in-memory drive]}, "fields": {field: text}} (the frame copies the picked files
-    onto the drive - web/index.html, the form submit)."""
-    files, fields = (sent or {}).get("files") or {}, (sent or {}).get("fields") or {}
-    fks = [p for p in files.get("k1pdf") or [] if p]
-    scr = (files.get("scrpdf") or [""])[0]
-    home_error = lambda msg: page(render("k1v/home.html", **_ctx(run=None, token=None, owner=None, tab=None, error=msg)))
-    if not fks or not all(p.lower().endswith(".pdf") for p in fks):
-        return home_error("Please choose the K-1 PDF(s).")
-    run = {"k1name": " + ".join(Path(p).name for p in fks), "result": None, "manual": {}, "flags": {}, "scr": None, "scrname": None}
-    pw = (fields.get("pdfpw") or "").strip()
-    run["k1s"], problems = [], []
-    for n, p in enumerate(fks):
-        ks, pr, _ = k1runs.read_k1_files([(p, Path(p).name)], pw)
-        for d in ks:
-            d["page"] += 1000 * n
-            for line in d["lines"]:                           # line ids follow the page number
-                line.pop("lid", None)
-            run["k1s"].append(prep.assign_lids(d))
-        problems += pr
-    run["problems"] = problems
-    if not run["k1s"]:
-        return home_error("; ".join(problems) if problems else "No Schedule K-1 pages found in the K-1 PDF(s).")
-    run["n1065"] = sum(1 for k in run["k1s"] if k.get("form") == "1065")
-    run["n1120"] = sum(1 for k in run["k1s"] if k.get("form") == "1120-S")
-    if scr:
-        try:
-            run["scr"], run["scrname"] = parse_screens(scr), Path(scr).name
-        except Exception as e:  # noqa: BLE001
-            return home_error(f"Couldn't read the Input Screens PDF: {e}")
-        if not run["scr"]["units"]:
-            return home_error("No K-1 input screens (K1, K1-2 …) found in the Input Screens PDF — print UltraTax File > Print > "
-                              "Input screens.")
-        run["result"] = verify_screens(prep.counted(run["k1s"], None), run["scr"])
-    token = uuid.uuid4().hex[:12]
-    k1runs.RUNS[token] = run
-    return page(render("k1v/home.html", **_ctx(run=run, token=token, error=None, tab=None, owner=None)))
+        if ut:                                                # why the K-1s can't be checked against the UT print (Verify return)
+            RUNS_1040[owner]["k1_scr_error"] = run.get("scr_error")
+    return page(render("k1v/home.html", **_ctx(run=run, token=token, tab=tab, owner=owner, tabs=_form_tabs(run))))
 
 
 def add_files(token: str, sent: dict):
@@ -224,9 +214,18 @@ def add_files(token: str, sent: dict):
 
 # ---------------------------------------------------------------- the K-1 Interpreter
 def interpreter(token: str, query: str = ""):
-    """?tabs=1: the K-1s as tabs instead of one long page."""
-    tabs = (parse_qs(query).get("tabs") or [""])[0] == "1"
-    return page(render("k1v/report.html", **_report_ctx(_run(token), token=token), tabs=tabs))
+    """?tabs=1: the K-1s as tabs instead of one long page. ?form=1065 / 1120-S: opened from that tab of the K-1s page - only
+    that form's K-1s are shown (Lady, 2026-11-21). The others stay on the page, hidden, so its saves, totals and Add to
+    Income Summary work on the whole run as before."""
+    q = parse_qs(query)
+    tabs = (q.get("tabs") or [""])[0] == "1"
+    form = (q.get("form") or [""])[0]
+    form = form if form in {t["form"] for t in FORM_TABS} else None
+    ctx = _report_ctx(_run(token), token=token)
+    tab = next((t["key"] for t in FORM_TABS if t["form"] == form), None)
+    if tab and tab != FORM_TABS[0]["key"] and "?for=" in ctx["back"]:
+        ctx["back"] += f"&tab={tab}"                          # "← K-1s" goes back to the tab it came from
+    return page(render("k1v/report.html", **ctx, tabs=tabs, form=form))
 
 
 def statement_amounts(token: str, sent: dict):
@@ -253,7 +252,7 @@ def add_to_income_summary(token: str, sent: dict):
     totals tab -> corrected amount) to the 1040 run that owns this K-1 run. Adding again replaces the package."""
     run = _run(token)
     if not run.get("owner"):
-        return Reply("json", dict(ok=False, error="Open the K-1 page from the 1040 (K-1 box, Open K-1 Verification) to add "
+        return Reply("json", dict(ok=False, error="Open the K-1 page from the 1040 (K-1 box, Open K-1 Tab) to add "
                                                   "the K-1s."), status=400)
     d = sent or {}
     if isinstance(d.get("state"), dict):
@@ -323,7 +322,7 @@ NO_TP = "Enter the taxpayer SSN (last 4) on K-1 UT first - box E is matched to i
 def k1_ut(token: str):
     run = _run(token)
     if not run.get("owner"):
-        return problem("Open the K-1 page from the 1040 (K-1 box, Open K-1 Verification) for K-1 UT.", _back(run))
+        return problem("Open the K-1 page from the 1040 (K-1 box, Open K-1 Tab) for K-1 UT.", _back(run))
     return page(render("k1v/prep.html", **_ctx(token=token, owner=run["owner"], data=_prep_data(run))))
 
 

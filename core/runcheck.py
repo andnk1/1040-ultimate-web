@@ -189,7 +189,8 @@ def load_ut(r, path) -> None:
         r["ut_error"] = f"Couldn't read the input screens: {type(e).__name__}: {e}"
     tok, _ = k1_run(r)
     if tok and r.get("ut_scr"):
-        k1runs.attach_screens(tok, path)
+        # why the K-1s can't be checked against this print (e.g. no K1 screens in it) - kept for Verify return's K-1 section
+        r["k1_scr_error"] = k1runs.attach_screens(tok, path) or None
 
 
 def read(form: dict, docs_on: list, *, work_dir, doc_list=None, mode: str = "summary", make_k1_run=None, k1w=None,

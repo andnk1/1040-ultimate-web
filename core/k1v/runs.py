@@ -109,19 +109,23 @@ def run_for(owner):
 
 
 def attach_screens(token, path, name=None) -> str:
-    """The UltraTax Input Screens PDF -> the K-1 entry check of that run. Returns an error text ('' = ok)."""
+    """The UltraTax Input Screens PDF -> the K-1 entry check of that run. Returns an error text ('' = ok), also kept in the
+    run as run["scr_error"] (None = ok): Verify return's K-1 section shows why there is no K-1 check (brief 2026-11-21)."""
     run = RUNS.get(token)
     if not run:
         return "run not found"
+    err = ""
     try:
         scr = parse_screens(str(path))
         if not scr["units"]:
-            return "No K-1 input screens (K1, K1-2 …) found in the input screens PDF."
-        run["scr"], run["scrname"] = scr, name or Path(path).name
-        run["result"] = verify_screens(prep.for_check(run), scr)
+            err = "No K-1 input screens (K1, K1-2 …) found in the input screens PDF."
+        else:
+            run["scr"], run["scrname"] = scr, name or Path(path).name
+            run["result"] = verify_screens(prep.for_check(run), scr)
     except Exception as e:  # noqa: BLE001
-        return f"Couldn't read the input screens for the K-1 check: {type(e).__name__}: {e}"
-    return ""
+        err = f"Couldn't read the input screens for the K-1 check: {type(e).__name__}: {e}"
+    run["scr_error"] = err or None
+    return err
 
 
 def set_owner(token, owner) -> None:

@@ -3,7 +3,7 @@
 Hand-off for a new Claude session: the working rules, what's decided but not built, the open questions and the pending list.
 Finished, settled work is in **BUILD_HISTORY.md** (moved there unchanged, in date order — the "history:" names below are its
 section titles — written for the desktop app: its rules stay, its desktop details don't); a screen with a spec is in
-`design\` (e.g. `design\k1_prep.md`). Last updated 2026-11-17.
+`design\` (e.g. `design\k1_prep.md`). Last updated 2026-11-21.
 
 ## One version only — the browser app (Lady, 2026-11-17)
 - The desktop app (local Python / Flask server) is **retired**. All work happens on the browser app only: this folder,
@@ -316,6 +316,110 @@ section titles — written for the desktop app: its rules stay, its desktop deta
 - `AI_logs\cost_log.csv` (one line per call, no client data; `.gitignore` lets it through). Request + raw reply in `_work\ai\`.
 
 ## Decided, not built (full text in the history)
+- **Brief 2026-11-21 (K-1s tab, `design\brief_2026-11-21_k1_tab.md`) — all 6 steps built.** Decisions (Lady, 2026-11-21):
+  - IRA distributions and pensions/annuities **stay two categories** (1040 line 4 vs line 5). The prior-year comparison and
+    Verify return check them line by line.
+  - The K-1 section opens in **its own browser tab, driven by the main tab**: one Python, one set of documents. It is not a
+    second copy of the app and not a SharedWorker.
+  - The K-1 page is called **"K-1s"**. **"K-1 Verification"** is the new name of the K-1 Interpreter.
+  - The **stand-alone K-1 reader is dropped**. K-1s are reached only from a 1040 run.
+  - The **K-1 entry check leaves the K-1 pages** and moves to Verify return, with K-1s included by default and an option to
+    leave them out. The checking code stays.
+  - The K-1s page is **split by form**: a K-1 1065 tab and a K-1 1120-S tab. 1120-S is not built yet; it will mirror 1065.
+  - **K-1 Verification is split by form too** (asked while building): each tab shows its own form's K-1s.
+  - Until Verify return is built, the entry check's pages and addresses (`/k1v/verify/<token>`, its Excel) keep working with
+    no link to them, so the archive check (`tools\parity\scenario.py`) still covers them. They are removed when the check
+    moves to Verify return.
+  - **Step 6 built:** `design\conversion_plan.md` updated:
+    - page 6 is now K-1s: its own tab, split by form, the stand-alone reader dropped;
+    - page 7 is now K-1 Verification;
+    - Verify return gets a **K-1 section**: included by default, an option to leave the K-1s out, one row per K-1 (name,
+      Verified / n differences) that opens to the detail, its Excel, and the reason when the UT print has no K-1 screens;
+    - the intended differences and question 3 are updated.
+
+    That reason is now kept in the run: `attach_screens` stores it as the K-1 run's `scr_error`, and `load_ut` / the K-1s
+    page copy it to `r["k1_scr_error"]`. Test: `test_no_k1_screens_reason_is_kept`. README's K-1 text is updated.
+  - **Step 1 built (Lady: "Go, Step 1"):** Income and Deduction Summary: the page number is now on the same line as the
+    document name ("… .pdf p.3", `srclink` in `templates\summary.html`). K-1 box: "K-1 documents found, review K-1's tab"
+    in bold, not red, and no longer in the box of problems at the top ("changed since added — add again" stays red there).
+    The button is now **Open K-1 Tab** (until Step 5 it still opens inside the app); the K-1 entry check button is gone.
+    The two K-1 messages that named the old button were changed too. Tests: `test_k1route` checks the new text.
+    The archive check now leaves out the date in the by-hand list's heading ("Tax year 2025 · <the day it was made> · …",
+    `tools\parity\scenario.py`). Before, K-1_Sample failed on any day except the day its reference was made.
+  - **Step 3 built (Lady: "Go, Step 3"): the K-1s page** (`templates\k1v\home.html`, `web\py\pages\k1.py`). Title "K-1s".
+    Tabs **K-1 1065 (n)** / **K-1 1120-S (n)**: n counts K-1s, not files. Each tab is one section drawn by the same macro
+    (`FORM_TABS` / `_form_tabs`, so 1120-S can later get what 1065 has). From top to bottom:
+    - **Add K-1 PDFs…**
+    - the K-1 PDFs, each name opening the PDF (`/open?path=…`) with "n K-1s" beside it;
+    - the "Not read" lines;
+    - **K-1 Verification** and **K-1 UT** (1120-S: "K-1 UT — not built yet", greyed). Both open in the same tab.
+
+    A file goes on the tab of the K-1s found in it (both kinds: both tabs). A file with no K-1 read (e.g. a state K-1) is
+    listed on both tabs with "no K-1 read". The banner and the entry check button are gone. The 1120-S code table stays.
+    Back links say "← K-1s" (K-1 Verification, K-1 UT, the unlinked entry check page).
+    **Stand-alone reader dropped:** the Read form, `POST /k1v/`, `read_on_its_own` and the frame's form code (`u1040.submit`
+    and the SHIM's submit listener in `web\index.html` - no page has a form now). `/k1v/` without `?for=` shows "Open the
+    K-1s from a client's Summary (K-1 box → Open K-1 Tab)." No test drove the stand-alone form.
+    **K-1 Verification split by form (Lady: "Split by form"):** each tab's button opens it with `?form=1065` / `?form=1120-S`
+    and only that form's K-1s show: the cards, "Jump to K-1", the count line, Verified n of N, print and the reviewer copy.
+    The other K-1s stay on the page, hidden, not left out, because its saves (statement amounts, ticks, comments) are kept
+    for the whole run by page number. Totals and Add to Income Summary work as before. The 1120-S view has no Calculate
+    totals, Excel or Add to Income Summary (1065 only). "← K-1s" goes back to the tab it came from. A K-1 keeps its
+    number (#1, #2 …) on both views. Without `?form=` every K-1 shows, as before.
+    New `tests\test_k1s_page.py`:
+    - the page itself;
+    - which tab a file goes to;
+    - no stand-alone reader;
+    - adding one K-1 PDF reads only that file.
+  - **Step 4 built (Lady: "Go, Step 4"): K-1 Verification** (the former K-1 Interpreter, `templates\k1v\report.html`).
+    - **`#` links fixed for every page**, in the frame's `SHIM` (`web\index.html`). A link starting with `#` scrolls to that
+      part of the page and never loads anything. The page's own click code runs first (the tabs view still switches tabs
+      with the same links). Before, "#k1-3" loaded the app inside the frame, because a page drawn from text has the app's
+      address. Checked in the app's frame: the jump scrolls, the frame stays on the page.
+    - **Each K-1's name in its card header opens its PDF at that K-1's page** (`/open?path=…&page=N`, in the PDF's own
+      tab). The page knows the run's PDFs in order (`DOCS`): the file is `DOCS[page / 1000]`, the page in it is
+      `page % 1000`. The header shows the real page ("PDF page 3", the file name on hover). "Copy of PDF page …" now says
+      "PDF page 3 of <file>" when there are several PDFs. The reviewer's copy keeps the name as plain text. Checked on the
+      K-1 sample client: all 32 names link to the right file and page, and no file-coded page number is left.
+    - **Renamed:** page title, heading and the reviewer copy's heading say **K-1 Verification**, and so do the two
+      tooltips that named the Interpreter (K-1 UT, the entry check). The saved-entries file keeps its old tag ("K-1
+      Interpreter entries") so files saved before still load. The code keeps its names (`interpreter`, `/k1v/k1/…`).
+    - Tests: `tests\test_k1s_page.py` (the name, the PDFs in order, the link, no file-coded page).
+  - **Step 5 built (Lady: "Go, Step 5"): the K-1 tab.** "Open K-1 Tab" on the Summary opens the K-1s in a browser tab of
+    their own: `web\k1tab.html`, a page frame with no Python. The 1040 Ultimate tab (its `window.opener`) draws every page
+    in it and does every save through its one worker (`web\index.html`, `u1040.k1`). The pages and their SHIM are
+    unchanged: the K-1 tab's `u1040` passes each link, save, download and `sendBeacon` to the 1040 tab.
+    - **One K-1 tab per app tab:** its name carries the app tab's id, which a reload of the app keeps (sessionStorage). A
+      second click brings the open tab back; after a reload or a New run, the click fills the same tab again.
+    - **PDF links in the K-1 tab** (the K-1 PDFs list, the K-1 names): the PDF's tab is opened by the K-1 tab's click, then
+      filled from the 1040 tab's copy (`showDocument`).
+    - **Add K-1 PDFs…** opens its file window in the K-1 tab; the files go to the 1040 tab's worker.
+    - **After a change in the K-1 tab** (Add to Income Summary, K-1 PDFs added, any K-1 save) the 1040 tab draws the Summary
+      again, 1.2 s after the last save, at the same scroll position. The K-1 box and the totals change.
+    - **"← 1040 Ultimate (this client)"** in the K-1 tab brings the 1040 tab forward. If Chrome won't, it says "Switch to the
+      1040 Ultimate tab"; it never loads the Summary in the K-1 tab.
+    - **The 1040 tab closed or reloaded:** the K-1 tab checks every 2 s and before every request. It then shows "The 1040
+      Ultimate tab was closed or reloaded — open the K-1 tab again from the Summary (K-1 box → Open K-1 Tab)." (the tab's
+      name says "not connected"). Nothing saved is lost.
+    - **Refresh (F5) in the K-1 tab:** the address keeps the page shown (`#/k1v/…`), so the same page comes back.
+    - **A save sent as the K-1 tab closes** (K-1 Verification's `sendBeacon`): the 1040 tab reads the data, not the closing
+      tab (the SHIM now calls `u1040.beacon`).
+    - **Pop-ups blocked:** the document tabs' message, then the K-1s open inside the app as before. The K-1 pages' own new
+      tabs (the totals, the by-hand print page) open from the page's click as before.
+    - **Tried in the test browser:** it blocks real pop-ups, so the K-1 tab was loaded into a test frame of the 1040 tab with
+      the 1040 tab as its opener (the same calls). Shown through the 1040 tab's worker: the K-1s page, K-1 Verification and
+      "← K-1s". Add to Income Summary redrew the 1040 tab's Summary ("3 K-1s added", same scroll). Also checked: the
+      "reloaded" message, a refresh on K-1 Verification, a closing-tab save, and the blocked-pop-up message with the K-1s
+      inside the app. **For Lady to try in Chrome:**
+      - the real K-1 tab: a second click, after reloading the app, after closing the app tab;
+      - a PDF link from the K-1 tab;
+      - "← 1040 Ultimate" bringing the tab forward;
+      - Add K-1 PDFs… in the K-1 tab.
+  - **Step 2 — nothing built (Lady, 2026-11-21).** IRA and pensions/annuities stay two categories (1040 line 4 vs line 5).
+    The flag for an unread IRA/SEP/SIMPLE box already exists: the 1099-R note says "IRA/SEP/SIMPLE: box not read — placed
+    under pensions, confirm" (`core\parsers.py` `_r_result`). It stays as it is. Known limits: on the IRS layout, a tick
+    drawn as a picture reads as "not checked"; the broker-form text reader can't see an empty box, so an unchecked one
+    says "not read".
 - **Consolidated statements (Lady, 2026-11-12):** entered in UltraTax by form type, not through UltraTax's Consolidated
   Brokerage Statement (the keyboard can't move between its tabs, and its 1099-B is a grid). The 1040 keeps one document per
   statement; its summary covers 1099-DIV, 1099-INT and 1099-B (1099-B as totals by 8949 category, the way the firm enters it).
@@ -353,9 +457,18 @@ List of 2026-11-02:
 
 List of 2026-11-05:
 - 2. Generic export CSV + export button per form tab (W2, 1098-M first).
-- 4. One UT check for K-1s: Verify return skips the K-1 lines and shows the K-1 entry check's result.
+- 4. One UT check for K-1s: Verify return skips the K-1 lines and shows the K-1 entry check's result — now planned as Verify
+  return's K-1 section (`design\conversion_plan.md`, 2 · Verify return; brief 2026-11-21).
 - 5. Clean-up: move what `screen_verify` borrows (`norm`, `MAP`) into it; delete the old `verify1040_*` files.
 - 7. Sample K-1s: no EIN / name read — look at the reader with Lady (correct the note and the test keys if needed).
+
+List of 2026-11-21 (after the K-1s tab brief):
+- 1. **1099-R not read when the box number is printed apart from its name** (a 401(k) plan's 1099-R, IRS layout, 3 copies on
+  one page, amounts with "$"). The "1" sits just left of "Gross distribution" on the page but was written as separate
+  text, so `_page_copies` (`core\parsers.py`) finds no "1 Gross distribution" line and reads nothing. Fix: also accept
+  the box number as the word just left of the name on the same row. The function is shared with MISC / NEC / SA / 1098-E,
+  so check the archive. Also `_r_extras`: find the label printed as "IRA/SEP/" + "SIMPLE" on the next line. Test with a
+  made-up form built the same way (not the client's file).
 
 Decided not to build: a document-type dropdown — history: "Decided not to build" (2026-11-02).
 

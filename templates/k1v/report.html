@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>K-1 Interpretation</title>
+<title>K-1 Verification</title>
 <style>
 :root{--navy:#3C69AB;--dark:#003366;--green:#446B67;--teal:#4e7874;--grey:#DFE1E9;--bg:#fff;--cardbg:#EFEFF7;--ink:#374151;--line:#9AA3B2;--mint:#7DD8C9;--warnbg:#FDF0F0;--warn:#8B0000;--orange:#B45309;--orangebg:#FEF3E2;}
 *{box-sizing:border-box}
@@ -117,13 +117,19 @@ button:hover{background:#1A4D80}
 .ktabs.hidden{display:none}
 .k1hide{display:none}
 @media print{.k1hide{display:block!important}}
+/* opened from one tab of the K-1s page (?form=1065 / 1120-S): the other form's K-1s are hidden - on screen, in print and in the
+   reviewer's copy. They stay on the page (not left out), so the page's saves, totals and Add to Income Summary are as before. */
+.formhide,.k1hide.formhide{display:none!important}
+/* a K-1's name in its card header opens its PDF at its page */
+.cardhead a.k1doc{color:inherit;text-decoration:none}.cardhead a.k1doc:hover{text-decoration:underline}
 @media(max-width:760px){.tri{grid-template-columns:1fr}.tri>div+div{border-left:none;border-top:1px solid var(--grey)}}
 </style>
 </head>
 <body>
 <div class="wrap">
-  {% if back %}<p class="noprint" style="font-size:.85rem;margin:0 0 10px"><a href="{{ back }}" style="color:#003366;text-decoration:none;font-weight:600">&larr; K-1 Verification</a></p>{% endif %}
-  <h1 style="font-size:1.3rem;margin:0 0 4px">K-1 Interpretation</h1>
+  {% if back %}<p class="noprint" style="font-size:.85rem;margin:0 0 10px"><a href="{{ back }}" style="color:#003366;text-decoration:none;font-weight:600">&larr; K-1s</a></p>{% endif %}
+  <h1 style="font-size:1.3rem;margin:0 0 4px">K-1 Verification</h1>
+  {% if form %}<p class="hint noprint" style="margin:0 0 8px">Form {{ form }} K-1s only &mdash; the other form's K-1s are on the K-1s page's other tab.</p>{% endif %}
   {% if filename %}<p class="hint noprint" style="margin:0 0 8px">File: {{ filename }}</p>{% endif %}
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
 
@@ -132,8 +138,8 @@ button:hover{background:#1A4D80}
     <div class="ktabs noprint hidden" id="ktabs"></div>
     <div class="card noprint" id="tocCard"><div class="cardhead">Jump to K-1</div><div class="cardbody"><div class="toc" id="toc"></div></div></div>
     <div id="k1s"></div>
-    <div class="center noprint"><div class="btnrow"><button id="calc" type="button">Calculate totals</button><button id="printbtn" type="button" class="alt">Print PDF</button><button id="xlbtn" type="button" class="alt">Download Excel summary</button>{% if owner %}<button id="upbtn" type="button">Add to Income Summary</button>{% endif %}<button id="revbtn" type="button" class="alt">Export for reviewer (HTML)</button><button id="savebtn" type="button" class="alt">Save my entries</button><button id="loadbtn" type="button" class="alt">Load entries</button><input type="file" id="loadfile" accept=".json,application/json" style="display:none"></div><div id="xlmsg"></div>
-      <p class="hint">Opens a new tab with totals by box/code and the 8582 passive-activity build.</p></div>
+    <div class="center noprint"><div class="btnrow">{% if form != '1120-S' %}<button id="calc" type="button">Calculate totals</button>{% endif %}<button id="printbtn" type="button" class="alt">Print PDF</button>{% if form != '1120-S' %}<button id="xlbtn" type="button" class="alt">Download Excel summary</button>{% if owner %}<button id="upbtn" type="button">Add to Income Summary</button>{% endif %}{% endif %}<button id="revbtn" type="button" class="alt">Export for reviewer (HTML)</button><button id="savebtn" type="button" class="alt">Save my entries</button><button id="loadbtn" type="button" class="alt">Load entries</button><input type="file" id="loadfile" accept=".json,application/json" style="display:none"></div><div id="xlmsg"></div>
+      {% if form != '1120-S' %}<p class="hint">Opens a new tab with totals by box/code and the 8582 passive-activity build.</p>{% endif %}</div>
   </div>
 
   <p class="disclaimer">Internal preparer aid. It doesn't replace reading the K-1, its statements and the K-3. Always compare the values read against the K-1 itself. Rules: k1_rules.py (1065_K1_UltraTax_1040_Checklist + preparer mappings).</p>
@@ -154,6 +160,19 @@ const DUPS = {{ (dups or {})|tojson }};
 const skipK = k => { const m = DUPS[k.page]; return !!(m && !m.counted); };
 const COUNTED = () => K1S.filter(k => !skipK(k));
 const BASE = {{ k1v_base|tojson }};
+const FORM = {{ (form or "")|tojson }};       // "1065" / "1120-S": opened from that tab of the K-1s page - only its K-1s are shown
+const SHOWN = k => !FORM || k.form === FORM;
+// The run's K-1 PDFs [path, name]. A K-1's page number says which file and which page: the 2nd file's pages are 1001+, the
+// 3rd's 2001+ ... -> the file = DOCS[page / 1000], the page in it = page % 1000 (what the PDF viewer shows).
+const DOCS = {{ (docs or [])|tojson }};
+const docOf = p => DOCS[Math.floor(p / 1000)];
+const where = p => `PDF page ${p % 1000}` + (DOCS.length > 1 && docOf(p) ? ` of ${docOf(p)[1]}` : "");
+function nameLink(k){                         // the K-1's name: opens its PDF at its page, in the PDF's own tab
+  const nm = esc(k.name || "(name not read)"), d = docOf(k.page);
+  if(!d || !/\.pdf$/i.test(d[0])) return nm;
+  return `<a class="k1doc" href="/open?path=${encodeURIComponent(d[0])}&page=${k.page % 1000}" title="Open ${esc(d[1])} at page ${k.page % 1000}">${nm}</a>`;
+}
+const pageLbl = k => `<span title="${esc(docOf(k.page) ? docOf(k.page)[1] : "")}">PDF page ${k.page % 1000}</span>`;
 const TOKEN = {{ (token or "")|tojson }};      // run id in verify1040 (statement amounts are sent there for the 1040 verification)
 const ORIG = {};                               // page -> K-1 as read from the PDF (before statement amounts)
 let STMT = {};
@@ -226,14 +245,14 @@ function renderK1(k,i){
   badges.push(`<span class="badge">Form ${esc(k.form||"?")} · ${k.year||""}</span>`);
   if(k.form==="1120-S"){   // S corporation: list the boxes read (no UltraTax guidance yet — checked in the 1040 Verification)
     const rows=k.lines.filter(l=>l.check||l.stmt||(l.amt!=null&&l.amt!==0)).map(l=>`<tr><td><b>Box ${esc(l.box)}${l.code?" "+esc(l.code):""}</b></td><td style="text-align:right">${l.check?"Checked":(l.amt==null?"See statement":fmt(l.amt))}</td><td>${l.stmt?T.stmt:""}</td></tr>`).join("");
-    return `<div class="card" id="k1-${i}" data-page="${k.page}"><div class="cardhead"><span class="pname">K-1 #${i+1} · ${esc(k.name||"(name not read)")}${k.ein?`<span class="ein">EIN ${esc(k.ein)}</span>`:""}</span><span>PDF page ${k.page}</span></div>
+    return `<div class="card" id="k1-${i}" data-page="${k.page}"><div class="cardhead"><span class="pname">K-1 #${i+1} · ${nameLink(k)}${k.ein?`<span class="ein">EIN ${esc(k.ein)}</span>`:""}</span>${pageLbl(k)}</div>
       <div class="cardbody"><div class="badges"><span class="badge">Form 1120-S · ${k.year||""}</span><span class="badge">S corporation shareholder</span></div>
       <div class="fyiline" style="margin:8px 0">Schedule K-1 (Form 1120-S) — boxes read below. No UltraTax entry guidance yet; the amounts are checked in the 1040 Verification.</div>
       ${rows?`<table style="border-collapse:collapse;min-width:360px;font-size:.88rem">${rows}</table>`:'<div class="zeros">No amounts on this K-1.</div>'}
       ${k.warnings.map(w=>`<div class="error">${esc(w)}</div>`).join("")}</div></div>`;
   }
   if(k.form!=="1065"){
-    return `<div class="card" id="k1-${i}"><div class="cardhead"><span class="pname">K-1 #${i+1} · ${esc(k.name||"(name not read)")}</span><span>PDF page ${k.page}</span></div>
+    return `<div class="card" id="k1-${i}"><div class="cardhead"><span class="pname">K-1 #${i+1} · ${nameLink(k)}</span>${pageLbl(k)}</div>
       <div class="cardbody">${k.warnings.map(w=>`<div class="error">${esc(w)}</div>`).join("")}</div></div>`;
   }
   if(k.G) badges.push(`<span class="badge">${k.G} partner</span>`);
@@ -313,11 +332,11 @@ function renderK1(k,i){
   let slots=""; for(let j=0;j<6;j++) slots+=`<span class="stslot"><select class="stsel" data-page="${k.page}" data-j="${j}">${OPTS}</select><input type="text" class="stamt" data-page="${k.page}" data-j="${j}" placeholder="Amount"></span>`;
   const stl=`<div class="stline noprint" data-page="${k.page}"><span class="lbl">Statement amounts</span>${slots}</div>`;
   const dm=DUPS[k.page]; let dupl="";
-  if(dm){ const of=dm.of.map(p=>"PDF page "+p).join(", ");
+  if(dm){ const of=dm.of.map(where).join(", ");
     dupl=dm.kind==="copy"?`<div class="warnline">Copy of ${of} — not counted</div>`
       :`<div class="warnline">Check: same partnership and partner as ${of}, different amounts${dm.counted?"":" — not counted"}<span class="schbox noprint" style="display:inline-flex;margin:0 0 0 14px"><label><input type="checkbox" class="dupc" data-page="${k.page}" data-v="count"${dm.chosen&&dm.counted?" checked":""}> Count</label><label><input type="checkbox" class="dupc" data-page="${k.page}" data-v="skip"${dm.chosen&&!dm.counted?" checked":""}> Don't count</label></span></div>`; }
 
-  return `<div class="card" id="k1-${i}" data-page="${k.page}"><div class="cardhead"><span class="pname">K-1 #${i+1} · ${esc(k.name||"(name not read)")}${k.ein?`<span class="ein">EIN ${esc(k.ein)}</span>`:""}</span><span style="display:flex;gap:18px;align-items:center"><button type="button" class="clr" data-page="${k.page}">Clear review marks</button><span class="utbox">UT # <input type="text" class="utn" data-page="${k.page}" maxlength="8"><span class="pv utp"></span></span><span>PDF page ${k.page}</span></span></div>
+  return `<div class="card" id="k1-${i}" data-page="${k.page}"><div class="cardhead"><span class="pname">K-1 #${i+1} · ${nameLink(k)}${k.ein?`<span class="ein">EIN ${esc(k.ein)}</span>`:""}</span><span style="display:flex;gap:18px;align-items:center"><button type="button" class="clr" data-page="${k.page}">Clear review marks</button><span class="utbox">UT # <input type="text" class="utn" data-page="${k.page}" maxlength="8"><span class="pv utp"></span></span>${pageLbl(k)}</span></div>
     <div class="badges">${badges.join("")}</div>
     <div class="pcwrap"><textarea class="pcom" data-page="${k.page}" placeholder="Partnership comments"></textarea><div class="pv pcomp"></div></div>
     ${(k.address||[]).length?`<div class="addr">${(k.address||[]).map(esc).join("\n")}</div>`:""}
@@ -365,9 +384,9 @@ let CURTAB=0;
 function applyTabs(){
   if(!TABS||!K1S.length) return;
   const seen={}, labels=K1S.map(k=>{const t=(k.name||"page "+k.page).replace(/^[^A-Za-z0-9]+/,"").slice(0,6).trim(); seen[t]=(seen[t]||0)+1; return seen[t]>1?t+" "+seen[t]:t;});
-  if(CURTAB>=K1S.length) CURTAB=0;
+  if(CURTAB>=K1S.length||!SHOWN(K1S[CURTAB])) CURTAB=Math.max(0,K1S.findIndex(SHOWN));
   const bar=document.getElementById("ktabs"); bar.classList.remove("hidden");
-  bar.innerHTML=K1S.map((k,i)=>`<button type="button" class="ktab${i===CURTAB?" on":""}" data-i="${i}" title="${esc(k.name||"")}">${esc(labels[i])}</button>`).join("");
+  bar.innerHTML=K1S.map((k,i)=>!SHOWN(k)?"":`<button type="button" class="ktab${i===CURTAB?" on":""}" data-i="${i}" title="${esc(k.name||"")}">${esc(labels[i])}</button>`).join("");
   bar.querySelectorAll(".ktab").forEach(b=>b.addEventListener("click",()=>{CURTAB=+b.dataset.i; applyTabs(); window.scrollTo(0,0);}));
   K1S.forEach((k,i)=>{const c=document.getElementById("k1-"+i); if(c) c.classList.toggle("k1hide",i!==CURTAB);});
   document.getElementById("tocCard").style.display="none";
@@ -375,6 +394,7 @@ function applyTabs(){
 document.addEventListener("click",e=>{const a=e.target.closest&&e.target.closest('a[href^="#k1-"]'); if(TABS&&a){CURTAB=+a.getAttribute("href").slice(4); applyTabs();}});
 function renderAll(){
   document.getElementById("k1s").innerHTML=K1S.map(renderK1).join("");
+  K1S.forEach((k,i)=>{const c=document.getElementById("k1-"+i); if(c&&!SHOWN(k)) c.classList.add("formhide");});
   applyTabs();
   document.querySelectorAll(".stline").forEach(line=>{
     const sv=STMT[line.dataset.page]||[];
@@ -403,11 +423,12 @@ if(K1S.length){
   applyStmt();
   document.getElementById("results").classList.remove("hidden");
   renderAll();
-  document.getElementById("toc").innerHTML=K1S.map((k,i)=>`<a href="#k1-${i}">#${i+1} ${esc(k.name||"page "+k.page)}</a>`).join("");
-  const s1065=K1S.filter(k=>k.form==="1065").length;
-  const totStmt=K1S.reduce((s,k)=>s+k.lines.filter(l=>l.stmt).length,0);
-  const warnN=K1S.filter(k=>(k.warnings||[]).length).length;
-  document.getElementById("summary").textContent=`${K1S.length} K-1s detected · ${s1065} Form 1065 · ${totStmt} lines marked * / STMT · ${K1S.filter(k=>k.lines.some(l=>l.box==="16")).length} with K-3 attached`+(warnN?` · ${warnN} K-1s need a manual check`:"");
+  document.getElementById("toc").innerHTML=K1S.map((k,i)=>!SHOWN(k)?"":`<a href="#k1-${i}">#${i+1} ${esc(k.name||"page "+k.page)}</a>`).join("");
+  const SH=K1S.filter(SHOWN);                  // the K-1s shown (all, or this tab's form)
+  const s1065=SH.filter(k=>k.form==="1065").length;
+  const totStmt=SH.reduce((s,k)=>s+k.lines.filter(l=>l.stmt).length,0);
+  const warnN=SH.filter(k=>(k.warnings||[]).length).length;
+  document.getElementById("summary").textContent=(FORM?`${SH.length} Form ${FORM} K-1s`:`${SH.length} K-1s detected · ${s1065} Form 1065`)+` · ${totStmt} lines marked * / STMT · ${SH.filter(k=>k.lines.some(l=>l.box==="16")).length} with K-3 attached`+(warnN?` · ${warnN} K-1s need a manual check`:"");
 }
 
 /* ---------------- verification, comments, UT #, print ---------------- */
@@ -417,7 +438,7 @@ function syncPrint(){
   document.querySelectorAll(".pcom").forEach(t=>{t.nextElementSibling.textContent=t.value||"(no partnership comment)"});
 }
 function progress(){
-  const all=document.querySelectorAll(".vc").length, done=document.querySelectorAll(".vc:checked").length;
+  const all=document.querySelectorAll(".card:not(.formhide) .vc").length, done=document.querySelectorAll(".card:not(.formhide) .vc:checked").length;
   const el=document.getElementById("prog"); if(el) el.textContent=`Verified ${done} of ${all} items`;
 }
 function wire(){
@@ -564,7 +585,7 @@ async function uploadTo1040(msgEl){
   try{
     const r=await fetch(BASE+"/add/"+TOKEN,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({k1s:COUNTED(),state:loadState()})});
     const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||("server said "+r.status));
-    say(`<p class="hint"><b>Added to the Income Summary ${esc(String(j.at).slice(11))}:</b> ${j.k1s} K-1${j.k1s===1?"":"s"}, ${j.lines} line${j.lines===1?"":"s"} — the Summary shows them (← K-1 Verification, then ← 1040 Ultimate).</p>`);
+    say(`<p class="hint"><b>Added to the Income Summary ${esc(String(j.at).slice(11))}:</b> ${j.k1s} K-1${j.k1s===1?"":"s"}, ${j.lines} line${j.lines===1?"":"s"} — the Summary (1040 Ultimate) shows them.</p>`);
   }catch(e){say(`<div class="error">Couldn't add (${esc(e.message)}).</div>`);}
 }
 const ub=document.getElementById("upbtn"); if(ub) ub.addEventListener("click",()=>uploadTo1040(document.getElementById("xlmsg")));
@@ -744,6 +765,8 @@ function exportReviewer(){
   k1.querySelectorAll(".pv, button.clr, .stline").forEach(e=>e.remove());
   k1.querySelectorAll(".vc").forEach(e=>{e.checked=false;e.removeAttribute("checked");});
   k1.querySelectorAll(".item.done").forEach(e=>e.classList.remove("done"));
+  k1.querySelectorAll(".formhide").forEach(e=>e.remove());
+  k1.querySelectorAll("a.k1doc").forEach(a=>a.replaceWith(document.createTextNode(a.textContent)));   // the reviewer's copy has no PDFs   // only this tab's form (after the values above were placed by position)
   const toc=document.getElementById("toc").innerHTML;
   const total=k1.querySelectorAll(".vc").length;
   const css=document.querySelector("style").textContent+TOTALS_CSS+`
@@ -764,7 +787,7 @@ function exportReviewer(){
 <\/script>`;
   const html=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>K-1 Review — ${esc(FILE)}</title><style>${css}</style></head><body><div class="wrap">
-<h1>K-1 Interpretation — Review</h1>
+<h1>K-1 Verification — Review</h1>
 <p class="subtitle">${esc(FILE)} · ${K1S.length} K-1s · exported ${today}</p>
 <div class="revhead"><b>For the reviewer:</b> preparer comments, partnership comments and UT # are shown highlighted (read-only). Tick <b>Verified</b> on each item as you review it.
 Ticks are <b>not saved</b> when this file is closed or refreshed. To keep a signed-off copy, press <b>Ctrl+P → Save as PDF</b> when you're done.</div>

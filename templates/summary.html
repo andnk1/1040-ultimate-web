@@ -8,12 +8,13 @@
 </head>
 <body>
 {% from '_steps.html' import steps %}
-{# srclink: a row's document name - a PDF opens at the page where the amount was read (p.N under the name), in the same tab
-   as the document's other links (brief 2026-11-17, page links). No page: the whole document. Not a PDF: the name only. #}
+{# srclink: a row's document name - a PDF opens at the page where the amount was read (p.N after the name, on the same line -
+   brief 2026-11-21), in the same tab as the document's other links (brief 2026-11-17, page links). No page: the whole
+   document. Not a PDF: the name only. #}
 {% macro srclink(d) -%}
 {%- if d.src_path and d.src_path.lower().endswith('.pdf') -%}
 <a class="doclink" href="/open?path={{ d.src_path|urlencode }}{{ '&page=' ~ d.src_page if d.src_page }}" title="Open the document{{ ' at page ' ~ d.src_page if d.src_page }}">{{ d.doc }}</a>
-{%- if d.src_page %}<div class="note pgref">p.{{ d.src_page }}</div>{% endif -%}
+{%- if d.src_page %} <span class="note pgref">p.{{ d.src_page }}</span>{% endif -%}
 {%- else -%}{{ d.doc }}{%- endif -%}
 {%- endmacro %}
 {% macro money(v) -%}
@@ -27,10 +28,10 @@
 
   {{ steps(token, 'summary') }}
 
-  {# only what's wrong shows here: missing files, work in progress not being saved, moved / unread files #}
+  {# only what's wrong shows here: missing files, work in progress not being saved, moved / unread files, K-1s changed since
+     they were added. K-1s found but not added yet is not a problem (brief 2026-11-21): the K-1 box says so. #}
   {% set dn = r.docnotes or {} %}
-  {% set k1todo = k1.found and not k1.pkg %}
-  {% if inv.missing or r.wip_error or not r.wip_path or r.moved or r.stuck or dn or k1todo or k1.changed %}
+  {% if inv.missing or r.wip_error or not r.wip_path or r.moved or r.stuck or dn or k1.changed %}
   <div class="banner" id="probBox">
     {% if inv.missing %}<div><span class="flag">{{ inv.missing|length }} document{{ 's' if inv.missing|length != 1 }} not found</span></div>{% endif %}
     {% if r.wip_error %}<div><span class="flag">{{ r.wip_error }}</span></div>{% endif %}
@@ -38,7 +39,6 @@
       <button type="button" class="light small pickbtn noprint" onclick="wipFolder()">Choose a folder…</button></div>{% endif %}
     {% if r.moved %}<div><span class="flag">Moved files:</span> {{ r.moved|join('; ') }}</div>{% endif %}
     {% if r.stuck %}<div><span class="flag">Not read:</span> {{ r.stuck|join('; ') }}</div>{% endif %}
-    {% if k1todo %}<div><span class="flag">K-1 documents found — not added yet</span></div>{% endif %}
     {% if k1.changed %}<div><span class="flag">K-1s changed since added — add again</span></div>{% endif %}
     {% if dn %}<div><span class="flag">Documents changed since your work was saved:</span> {{ dn|length }} — see the Document inventory</div>{% endif %}
   </div>
@@ -77,12 +77,12 @@
   <details class="card" id="k1box">
     <summary class="cardhead"><span><span class="arrow">▶</span>K-1s</span>
       <span class="sub">{% if k1.pkg %}{{ k1.pkg.n }} K-1{{ 's' if k1.pkg.n != 1 }} added {{ k1.when }}{% if k1.changed %} · <span class="flag">changed since added — add again</span>{% endif %}
-        {%- elif k1.found %}<span class="flag">K-1 documents found — not added yet</span>{% else %}no K-1s{% endif %}</span></summary>
+        {%- elif k1.found %}<b>K-1 documents found, review K-1's tab</b>{% else %}no K-1s{% endif %}</span></summary>
     <div class="cardbody">
       {% if k1.files %}<p class="note">{{ k1.files|join(' · ') }}</p>{% endif %}
+      {# the K-1 entry check has no button: it moves to Verify return (its page still works until then - BUILD_NOTES) #}
       <div class="btnrow noprint">
-        <a class="btn" href="/k1v/?for={{ token }}" target="_blank">Open K-1 Verification</a>
-        {% if k1.check %}<a class="btn" href="/k1v/verify/{{ k1.token }}" target="_blank">K-1 entry check</a>{% endif %}
+        <a class="btn" href="/k1v/?for={{ token }}" target="_blank">Open K-1 Tab</a>
         {% if k1.pkg %}<button type="button" onclick="k1Remove()">Remove</button>{% endif %}
       </div>
     </div>

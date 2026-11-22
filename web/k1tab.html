@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>K-1s</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  /* the K-1 tab (brief 2026-11-21, step 5): only the page frame; the look is the pages' own */
+  html, body { margin: 0; height: 100%; }
+  #page { width: 100%; height: 100vh; border: 0; display: block; }
+  #toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 9; }
+</style>
+</head>
+<body>
+<!-- The K-1 tab: the K-1s, K-1 Verification and K-1 UT of one client, opened from the Summary (K-1 box → Open K-1 Tab).
+     It has no Python of its own: the 1040 Ultimate tab that opened it (window.opener) draws every page and does every save -
+     one Python, one set of documents (web/index.html, u1040.k1). The address keeps the page shown (#/k1v/...), so a refresh
+     (F5) shows it again. -->
+<div class="wrap narrow hidden" id="gone">
+  <h1>K-1s</h1>
+  <div class="error">The 1040 Ultimate tab was closed or reloaded — open the K-1 tab again from the Summary (K-1 box → Open K-1 Tab).</div>
+  <p class="note">Nothing saved is lost: the K-1 work file is written after each change.</p>
+</div>
+<iframe id="page" title="K-1s"></iframe>
+<div id="toast" class="banner hidden"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const show = (el, on = true) => el.classList.toggle("hidden", !on);
+  const MAIN = window.opener;                          // the 1040 Ultimate tab
+  const first = (() => { try { return MAIN && !MAIN.closed && MAIN.u1040 && MAIN.u1040.k1; } catch (e) { return null; } })();
+  const SESSION = first ? first.session : "";
+  let currentUrl = decodeURIComponent(location.hash.slice(1));
+  // what the 1040 Ultimate tab checks before it reuses this tab (web/index.html openK1Tab): the client's K-1s page this tab
+  // was opened on (kept for a refresh, when the address may be another K-1 page)
+  let home = currentUrl.startsWith("/k1v/?for=") ? currentUrl.split("&")[0] : "";
+  try { if (home) sessionStorage.setItem("k1tab-home", home); else home = sessionStorage.getItem("k1tab-home") || ""; } catch (e) { /* none */ }
+  window.K1TAB = { session: SESSION, home };
+
+  // the 1040 Ultimate tab's side, while it is the same load of the app that opened this tab - else null
+  function main() {
+    try {
+      const k1 = MAIN && !MAIN.closed && MAIN.u1040 && MAIN.u1040.k1;
+      return k1 && SESSION && k1.session === SESSION ? k1 : null;
+    } catch (e) { return null; }
+  }
+  let isGone = false;
+  function gone() {                                    // closed or reloaded: say so plainly, instead of failing silently
+    if (isGone) return;
+    isGone = true;
+    show($("page"), false);
+    show($("gone"));
+    document.title = "K-1s — not connected";
+  }
+  setInterval(() => { if (!main()) gone(); }, 2000);
+
+  let toastT = 0;
+  function toast(text) {
+    $("toast").textContent = text;
+    show($("toast"));
+    clearTimeout(toastT);
+    toastT = setTimeout(() => show($("toast"), false), 3200);
+  }
+  function download(bytes, name, mime) {
+    const url = URL.createObjectURL(new Blob([bytes], { type: mime || "application/octet-stream" }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: name });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+  const ui = { toast, download, doc: document };
+
+  function showPage(html, url, reloaded) {
+    const m = main();
+    if (!m) return gone();
+    currentUrl = url;
+    history.replaceState(null, "", "#" + encodeURIComponent(url));   // a refresh (F5) shows this page again
+    const flag = reloaded ? "<script>window.u1040Reloaded = true;<\/script>" : "";
+    $("page").srcdoc = html.replace("<head>", "<head>" + m.shim + flag);
+  }
+  $("page").addEventListener("load", () => {           // the tab's name = the page's (K-1s, K-1 Verification, K-1 UT)
+    try { document.title = $("page").contentDocument.title || "K-1s"; } catch (e) { /* keeps the last one */ }
+  });
+  async function open(url, reloaded) {
+    const m = main();
+    if (!m) return gone();
+    const r = await m.request("GET", url);
+    if (r.kind === "html") return showPage(r.body, url, reloaded);
+    if (r.kind === "file") return download(r.body, r.filename, r.mime);
+    toast(r.kind === "error" ? "Something went wrong: " + r.body : "Not in the browser app yet.");
+  }
+  // Add K-1 PDFs…: the file window opens in this tab (Chrome opens it only in the tab that was clicked); the picked files go
+  // to the 1040 Ultimate tab's worker
+  function browseHere(kind, m) {
+    return new Promise(resolve => {
+      const input = Object.assign(document.createElement("input"), { type: "file", accept: kind === "files" ? ".pdf" : "", multiple: kind === "files" });
+      input.onchange = () => m.putFiles([...input.files]).then(resolve);
+      input.oncancel = () => resolve({ paths: [], path: "" });
+      input.click();
+    });
+  }
+  // "← 1040 Ultimate (this client)": brings the 1040 Ultimate tab to the front (it doesn't load the Summary here)
+  function toMain() {
+    try { MAIN.focus(); } catch (e) { /* closed */ }
+    setTimeout(() => { if (document.hasFocus()) toast("Switch to the 1040 Ultimate tab — it is still open."); }, 400);
+  }
+
+  // what the pages' SHIM calls (parent.u1040 inside the frame) - the same calls as in the 1040 Ultimate tab's frame
+  window.u1040 = {
+    toast,
+    reload: () => open(currentUrl, true),
+    async fetch(url, opts) {
+      const m = main();
+      if (!m) {
+        gone();
+        return new Response(JSON.stringify({ ok: false, error: "The 1040 Ultimate tab was closed or reloaded." }),
+                            { status: 410, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.startsWith("/browse?")) return Response.json(await browseHere(new URLSearchParams(url.slice(8)).get("kind"), m));
+      const r = await m.fetch(url, opts, ui);
+      if ((opts.method || "GET").toUpperCase() === "POST" && url.startsWith("/k1v/") && r.ok) m.changed();   // the Summary is drawn again
+      return r;
+    },
+    beacon(url, data) {                                // the page is being left (or this tab closed): the 1040 tab reads the data
+      const m = main();
+      if (!m) return;
+      m.beacon(url, data, ui).then(r => { if (r.ok && url.startsWith("/k1v/")) m.changed(); }).catch(() => {});
+    },
+    go(url) {                                          // (no await before window.open: the click must still count)
+      const m = main();
+      if (!m) return gone();
+      if (url === "/" || url.startsWith("/summary/")) return toMain();
+      if (url.startsWith("/open?")) return m.showDocument(window.open("", m.docTabName(url)), url, ui);
+      return open(url);
+    },
+    addMore: () => toast("Add more documents on the Summary, in the 1040 Ultimate tab."),
+  };
+
+  if (!first || !currentUrl) return gone();
+  open(currentUrl);
+})();
+</script>
+</body>
+</html>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>K-1 Verification</title>
+<title>K-1s</title>
 <style>
 :root{--dark:#003366;--green:#446B67;--teal:#4e7874;--grey:#DFE1E9;--cardbg:#EFEFF7;--ink:#374151;--line:#9AA3B2;--mint:#7DD8C9;--warnbg:#FDF0F0;--warn:#8B0000}
 *{box-sizing:border-box}
@@ -46,82 +46,58 @@ table.v td.code{font-weight:700;color:var(--dark);white-space:nowrap}
 table.v td.empty{width:20%}
 .note{font-size:.8rem;color:#6B7280}
 .hidden{display:none}
+table.v td a.doclink{color:var(--dark);font-weight:600;text-decoration:none}
+table.v td a.doclink:hover{text-decoration:underline}
+.cnt{font-size:.78rem;color:#6B7280;margin-left:8px}
+.secbtns{margin-top:16px}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <p class="back">{% if owner %}<a href="/summary/{{ owner }}">&larr; 1040 Ultimate (this client)</a>{% else %}<a href="/">&larr; 1040 Ultimate</a>{% endif %}</p>
-  <h1>K-1 Verification</h1>
-  <p class="subtitle">For returns with many K-1s: read the K-1s once, then open the UltraTax entry guide and check what was typed in UltraTax against the K-1s. The original K-1 PDFs are read directly &mdash; statement pages stay available.</p>
+  {% if not owner %}
+  <h1>K-1s</h1>
+  <p class="banner">Open the K-1s from a client's Summary (K-1 box &rarr; Open K-1 Tab).</p>
+  {% else %}
+  <p class="back"><a href="/summary/{{ owner }}">&larr; 1040 Ultimate (this client)</a></p>
+  <h1>K-1s</h1>
+  <p class="subtitle">The client's K-1 PDFs, one tab per form. Add the K-1 PDFs that came later, open a PDF from its name, then go through
+    each K-1 in K-1 Verification (UltraTax entry guide, statement amounts, Add to Income Summary) and K-1 UT.</p>
+
+  {#- one section per K-1 form - the same template for both, so 1120-S can later get everything 1065 has (k1.py FORM_TABS) #}
+  {% macro section(t) -%}
+  <div class="card">
+    <div class="cardhead">{{ t.title }}</div>
+    <div class="cardbody">
+      <p><button type="button" class="mbtn addK1">Add K-1 PDFs…</button> <span class="hint addMsg"></span></p>
+      <table class="v"><tr><th>K-1 PDFs</th></tr>
+        {% for f in t.files %}<tr><td title="{{ f.path }}"><a class="doclink" href="/open?path={{ f.path|urlencode }}" title="Open the PDF">{{ f.name }}</a>
+          <span class="cnt">{% if f.none_read %}no K-1 read{% else %}{{ f.k1s }} K-1{{ 's' if f.k1s != 1 }}{% endif %}</span></td></tr>
+        {% else %}<tr><td class="hint">No {{ t.title }} PDFs yet</td></tr>{% endfor %}
+      </table>
+      {% for p in run.problems %}<div class="error"><b>Not read:</b> {{ p }}</div>{% endfor %}
+      <div class="btnrow secbtns">
+        <a class="btn mbtn {% if not t.count %}off{% endif %}" href="{{ k1v_base }}/k1/{{ token }}?form={{ t.form }}">K-1 Verification</a>
+        {% if t.k1ut %}<a class="btn mbtn {% if not t.count %}off{% endif %}" href="{{ k1v_base }}/prep/{{ token }}">K-1 UT</a>
+        {% else %}<a class="btn mbtn off" title="K-1 UT for {{ t.title }} isn't built yet">K-1 UT — not built yet</a>{% endif %}
+      </div>
+    </div>
+  </div>
+  {%- endmacro %}
 
   {% set active = 's1120' if tab == 's1120' else 'k1065' %}
   <div class="tabs" id="tabs">
-    <button type="button" data-tab="k1065" class="{{ 'on' if active == 'k1065' }}">K-1 1065{% if run %} ({{ run.n1065 }}){% endif %}</button>
-    <button type="button" data-tab="s1120" class="{{ 'on' if active == 's1120' }}">K-1 1120-S{% if run %} ({{ run.n1120 }}){% endif %}</button>
+    {% for t in tabs %}<button type="button" data-tab="{{ t.key }}" class="{{ 'on' if active == t.key }}">{{ t.title }} ({{ t.count }})</button>{% endfor %}
   </div>
 
-  <div class="panel {{ 'on' if active == 'k1065' }}" id="p-k1065">
-  {% if error %}<div class="error">{{ error }}</div>{% endif %}
-
-  <div class="card">
-    <div class="cardhead">1 &middot; Read</div>
-    <div class="cardbody">
-      {% if owner %}{# opened from the 1040: the K-1 PDFs found among its documents (by path), more added the same way #}
-      <table class="v"><tr><th>K-1 PDFs</th></tr>
-        {% for p, n in run.files %}<tr><td title="{{ p }}">{{ n }}</td></tr>{% else %}<tr><td class="hint">No K-1 PDFs yet</td></tr>{% endfor %}
-      </table>
-      <button type="button" class="mbtn" id="addK1">Add K-1 PDFs…</button> <span class="hint" id="addMsg"></span>
-      <script>
-      document.getElementById('addK1').addEventListener('click', async () => {
-        const m = document.getElementById('addMsg');
-        const j = await (await fetch('/browse?kind=files')).json();
-        if (j.busy) { m.textContent = 'A file window is already open.'; return; }
-        if (!j.paths || !j.paths.length) return;
-        m.textContent = 'Reading…';
-        await fetch('{{ k1v_base }}/files/{{ token }}', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({paths: j.paths})});
-        reloadPage();
-      });
-      </script>
-      {% else %}
-      <form method="post" enctype="multipart/form-data" action="{{ k1v_base }}/">
-        <div class="field"><label>K-1 PDFs &mdash; Form 1065 and/or 1120-S</label><input type="file" name="k1pdf" accept="application/pdf" multiple required>
-          <p class="hint">Select one or more PDFs (a K-1 package, or the K-1 files themselves). Pages of the 2nd file are numbered 1001+, the 3rd 2001+.</p></div>
-        <div class="field"><label>Password for protected PDFs &mdash; only if a K-1 file asks for it</label><input type="password" name="pdfpw" autocomplete="off" style="max-width:260px">
-          <p class="hint">Used once to open the files, never saved. Same password for all protected K-1 files in this batch.</p></div>
-        <div class="field"><label>UltraTax Input Screens (PDF) &mdash; to check what was typed</label><input type="file" name="scrpdf" accept="application/pdf">
-          <p class="hint">UltraTax: File &gt; Print &gt; Input screens (print to PDF). Optional &mdash; without it you get the entry guide and the Income Summary only.</p></div>
-        <button type="submit">Read</button>
-      </form>
-      {% endif %}
-    </div>
-  </div>
-
-  {% if run %}
-  <div class="card">
-    <div class="cardhead">2 &middot; Open</div>
-    <div class="cardbody">
-      {% for p in run.problems %}<div class="error"><b>Not read:</b> {{ p }}</div>{% endfor %}
-      <div class="banner">
-        K-1s: {{ run.k1name }} &mdash; {{ run.n1065 }} Form 1065, {{ run.n1120 }} Form 1120-S<br>
-        {% if run.scr %}Input Screens: {{ run.scrname }} &mdash; {{ run.scr.units|length }} K-1 units entered in UltraTax ({{ run.scr.pages }} pages)
-        {% else %}No Input Screens read &mdash; the K-1 check needs the Input Screens PDF.{% endif %}
-      </div>
-      <div class="btnrow">
-        <a class="btn mbtn" href="{{ k1v_base }}/k1/{{ token }}" target="_blank">K-1 Interpreter</a>
-        <a class="btn mbtn {% if not run.result %}off{% endif %}" href="{{ k1v_base }}/verify/{{ token }}" target="_blank">K-1 entry check</a>
-        {% if owner %}<a class="btn mbtn {% if not run.n1065 %}off{% endif %}" href="{{ k1v_base }}/prep/{{ token }}" target="_blank">K-1 UT</a>{% endif %}
-      </div>
-    </div>
-  </div>
-  {% endif %}
-  </div>
-
-  <div class="panel {{ 'on' if active == 's1120' }}" id="p-s1120">
+  {% for t in tabs %}
+  <div class="panel {{ 'on' if active == t.key }}" id="p-{{ t.key }}">
+    {{ section(t) }}
+    {% if t.key == 's1120' %}
     <div class="card">
       <div class="cardhead"><span>Schedule K-1 (Form 1120-S) &mdash; boxes and codes</span></div>
       <div class="cardbody">
-        {% if run and run.n1120 %}<div class="banner">{{ run.n1120 }} Form 1120-S K-1s were read. They are checked against the input screens in the K-1 entry check; the Interpreter just lists their boxes (no UltraTax guidance and no Income Summary yet).</div>{% endif %}
-        <p class="hint" style="margin:0 0 10px">Names only, from the IRS list of codes (reserved codes left out). Where (UT), Note and Why are still empty.</p>
+        <p class="hint" style="margin:0 0 10px">K-1 Verification lists the 1120-S boxes only (no UltraTax guidance, no Income Summary, no K-1 UT for 1120-S yet).
+          Names only, from the IRS list of codes (reserved codes left out). Where (UT), Note and Why are still empty.</p>
         <table class="v">
           <tr><th>Box</th><th>Code</th><th>Name</th><th>Where (UT)</th><th>Note</th><th>Why</th></tr>
           {% for box, title, items in codes_1120s %}
@@ -133,7 +109,10 @@ table.v td.empty{width:20%}
         </table>
       </div>
     </div>
+    {% endif %}
   </div>
+  {% endfor %}
+  {% endif %}
 
   <p class="disclaimer">Internal preparer aid. Contains client information &mdash; internal use only. Federal only. Partner's Basis Worksheets are not reviewed yet.</p>
 </div>
@@ -144,6 +123,17 @@ function showTab(t) {
   sameWidth();
 }
 document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+// Add K-1 PDFs… (on each tab - the same K-1 list: a file goes to the tab of the K-1s found in it). Only the new files are
+// read; the ones read before come from what was kept (core/readcache.py).
+document.querySelectorAll('.addK1').forEach(btn => btn.addEventListener('click', async () => {
+  const m = btn.parentElement.querySelector('.addMsg');
+  const j = await (await fetch('/browse?kind=files')).json();
+  if (j.busy) { m.textContent = 'A file window is already open.'; return; }
+  if (!j.paths || !j.paths.length) return;
+  m.textContent = 'Reading…';
+  await fetch('{{ k1v_base }}/files/{{ token }}', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({paths: j.paths})});
+  reloadPage();
+}));
 // the mint buttons: all as wide as the widest one on the page
 function sameWidth() {
   const bs = [...document.querySelectorAll('.mbtn')];

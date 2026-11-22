@@ -15,8 +15,8 @@ A page is done when it gives the same results as the archive on the sample clien
 | 2 · Verify return | `verify.html` + 4 addresses | not yet |
 | 3 · AI Doc Review | `ai_requests.html` + 4 addresses, API key in `.env` | not yet — waits for the key decision |
 | 4 · AI Return Review, 5 · AI Advisory | placeholder pages | **Built** (step A) — same pages |
-| 6 · K-1 Verification | `k1v\home.html` (new browser tab) | **Built** (step 5) — inside the app |
-| 7 · K-1 Interpreter + K-1 entry check | `k1v\report.html`, `k1v\verify.html` | **Built** (step 5) |
+| 6 · K-1s (was K-1 Verification) | `k1v\home.html` (new browser tab) | **Built** (step 5); since 2026-11-21 its own tab, driven by the app tab |
+| 7 · K-1 Verification (was the K-1 Interpreter) + K-1 entry check | `k1v\report.html`, `k1v\verify.html` | **Built** (step 5); the entry check moves to Verify return (2026-11-21) |
 | 8 · K-1 UT | `k1v\prep.html` + CSV / Excel / PDF | **Built** (step 5) — the PDF is a print page |
 | Mask page | `mask.html` | **not converted** — a separate app |
 
@@ -71,6 +71,18 @@ summary ticks; (h) Income and Deduction Summary (Excel); (i) K-1 box Remove.
   Needs one sample P&L (CSV or Excel) — none in the samples yet.
 
 ### 2 · Verify return
+- **K-1 section (brief 2026-11-21 — the K-1 entry check moves here):**
+  - **Included by default**, with an option to leave the K-1s out (a tick on the page, kept with the work in progress).
+  - **One row per K-1:** its name, then *Verified* or the number of differences. The row opens to the detail: the entry
+    check's rows for that K-1, every K-1 item vs what was typed in UltraTax. So 3 K-1s or 25 read the same.
+  - **Its Excel:** the entry check's Excel (today `/k1v/verify/<token>/excel`).
+  - The checking code stays: `core\k1v\screen_verify.py`, `attach_screens` (`core\k1v\runs.py`).
+  - **When the UT print has no K-1 screens, the section says why.** Since 2026-11-21 the reason is kept in the run:
+    `r["k1_scr_error"]`, and the K-1 run's `scr_error`, e.g. "No K-1 input screens (K1, K1-2 …) found in the input screens
+    PDF." Before, `load_ut` dropped it, and the K-1 page only said "No Input Screens read".
+  - This also closes pending item 4 of 2026-11-05 (Verify return skips the K-1 lines and shows the K-1 check).
+  - Until Verify return is built, the entry check's page and Excel still work at their addresses, with no button (Lady,
+    2026-11-21). They are removed when this section is built.
 - **Changes:** the UT input screens print and the 2025 return are picked on the page with the browser's file window; reading
   runs in the worker with the stuck-PDF guard; the result, ticks and comments are saved with the work in progress.
 - **Loses:** the master checklist file `checklist_master.json` kept in the app folder (one per computer); *Save review
@@ -93,18 +105,35 @@ summary ticks; (h) Income and Deduction Summary (Excel); (i) K-1 box Remove.
 ### 4 · AI Return Review, 5 · AI Advisory
 - **Changes / loses:** nothing — placeholder pages. **Proven by:** the same page text. (Can go with step A.)
 
-### 6 · K-1 Verification (the K-1 run page)
-- **Changes:** opens inside the app with *← Back to Summary*, instead of a new browser tab (the run lives in this tab's
-  worker; a new tab would start empty) — question 3. *+ Add K-1 PDFs…* uses the browser's file window. The K-1 work file is
-  saved next to the work in progress in the client folder.
-- **Loses:** the new tab; the stand-alone K-1 reader at `/k1v/` without a 1040 run (to keep as a mode of the same page, or drop).
-- **Replaced by:** the same page in the app's frame; files from the browser's file window.
+### 6 · K-1s (the K-1 run page; called K-1 Verification until 2026-11-21)
+- **Changes:** built 2026-11-18 inside the app (question 3). Since 2026-11-21 (brief `design\brief_2026-11-21_k1_tab.md`):
+  - It opens in **its own browser tab** (*Open K-1 Tab* on the Summary), driven by the app tab. `web\k1tab.html` has no
+    Python: the app tab's worker draws every page in it and does every save (one Python, one set of documents).
+  - Pop-ups blocked: the K-1s open inside the app, as before.
+  - The page is split by form: tabs **K-1 1065 (n)** / **K-1 1120-S (n)**, where n counts K-1s. Each tab is one section:
+    - *Add K-1 PDFs…* (the browser's file window; only new files are read);
+    - the K-1 PDFs, each name opening the PDF;
+    - the "Not read" lines;
+    - **K-1 Verification** and **K-1 UT** (1120-S: not built yet).
+  - The K-1 work file is saved next to the work in progress in the client folder.
+- **Loses:**
+  - The stand-alone K-1 reader at `/k1v/` without a 1040 run — **dropped** (Lady, 2026-11-21). The K-1s are reached only from
+    a client's Summary.
+  - The K-1 entry check button — the check moves to Verify return (see 2 · Verify return).
+- **Replaced by:** the K-1 tab; files from the browser's file window.
 - **Proven by:** every K-1 line read from `tests\samples\K-1_Sample` (17 files, 64 K-1s) and from the Sample case, compared
   with the archive (the K-1_Sample case has no answer key yet: the archive's results are the reference).
 
-### 7 · K-1 Interpreter + K-1 entry check
-- **Changes:** statement amounts, 11 S / 11 ZZ ticks and corrections saved in the tab; *Add to Income Summary* sends the
-  package to the Summary in the same tab; the entry check against the UT print; the two Excel files made in the tab.
+### 7 · K-1 Verification (was the K-1 Interpreter) + K-1 entry check
+- **Changes:** statement amounts, 11 S / 11 ZZ ticks and corrections are saved in the tab. *Add to Income Summary* sends the
+  package to the Summary, and the app tab draws it again. The entry check runs against the UT print. The two Excel files are
+  made in the tab.
+- **Since 2026-11-21:**
+  - renamed **K-1 Verification**;
+  - opened from a K-1s tab, it shows that form's K-1s only (`?form=`);
+  - each K-1's name opens its PDF at its page;
+  - `#` links scroll inside the page (fixed in the frame's SHIM);
+  - the entry check has no button any more — it moves to Verify return.
 - **Loses:** the server keeping the K-1 run while other tabs used it.
 - **Replaced by:** the worker keeping it (one tab).
 - **Proven by:** the package added and the income summary lines after adding; the entry-check rows; the Excel files cell by
@@ -138,6 +167,11 @@ summary ticks; (h) Income and Deduction Summary (Excel); (i) K-1 box Remove.
   (`tests\harness.py` `label_changes`).
 - 2026-11-18 — the K-1 pages open inside the app (question 3); the by-hand list's PDF is a print page (question 5:
   Chrome's Save as PDF).
+- 2026-11-21 — brief_2026-11-21_k1_tab:
+  - the K-1s open in their own tab, driven by the app tab;
+  - the stand-alone K-1 reader is dropped;
+  - the K-1 entry check moves to Verify return;
+  - the K-1 pages are renamed (K-1s / K-1 Verification) and split by form.
 - 2026-11-17 — each summary row carries the page its amount was read on (`src_path` / `src_page`, the name's link) — new,
   the archive has no such field: the check leaves those two fields out (`tools\parity\scenario.py` `normalize`).
 
@@ -159,7 +193,8 @@ summary ticks; (h) Income and Deduction Summary (Excel); (i) K-1 box Remove.
 2. **The master checklist.** (a) A file on the shared drive, picked once (one list for the whole office; Chrome asks for access
    again each session). (b) Kept in each browser (one list per computer; export / import to share). *Recommend (a).*
 3. **K-1 pages** inside the app with *← Back* (recommended), or in a new tab (needs the two tabs to talk to each other — more
-   code, no gain I can see).
+   code, no gain I can see). *Answered: inside the app (2026-11-18); then their own tab, driven by the app tab (Lady,
+   2026-11-21).*
 4. **More sample clients** for the archive check: the regression set (431,704), the 110-page UT print, a finished 2025 return,
    a P&L — as folders under `tests\samples` (local only).
 5. **The by-hand list PDF:** a print page (Chrome's Save as PDF) — recommended — or a PDF drawn line by line with MuPDF.js

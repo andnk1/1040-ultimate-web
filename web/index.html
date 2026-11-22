@@ -388,17 +388,26 @@ const SHIM = `<script>(() => {
   addEventListener("click", e => {
     const a = e.target.closest && e.target.closest("a[href]");
     const h = a && a.getAttribute("href");
+    // a link inside the page ("#k1-3"): scroll to that part of the page, never load anything. The page is drawn from text
+    // (srcdoc), so its base address is the app's own: left alone, "#k1-3" loaded the app in the frame (brief 2026-11-21).
+    // The page's own click code runs first (K-1 Verification's tabs view switches tabs with the same links).
+    if (h && h.startsWith("#")) {
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      const t = h.length > 1 && document.getElementById(decodeURIComponent(h.slice(1)));
+      if (t) t.scrollIntoView();
+      return;
+    }
     if (!own(h) || e.defaultPrevented) { if (own(h)) e.preventDefault(); return; }
     e.preventDefault();
     parent.u1040.go(h);
   });
-  // a form (K-1 Verification on its own → Read): its files and fields go to the app instead of the server
-  addEventListener("submit", e => { e.preventDefault(); parent.u1040.submit(e.target); }, true);
-  // navigator.sendBeacon (the K-1 Interpreter saves its work with it when the page is left) -> the app, like a save
+  // navigator.sendBeacon (K-1 Verification saves its work with it when the page is left) -> the app, like a save. The app
+  // reads the data itself: the page may be closing (the K-1 tab) and can't wait for it.
   const beacon = navigator.sendBeacon && navigator.sendBeacon.bind(navigator);
   navigator.sendBeacon = (u, b) => {
     if (!own(u)) return beacon(u, b);
-    Promise.resolve(b instanceof Blob ? b.text() : String(b || "")).then(t => parent.u1040.fetch(u, { method: "POST", body: t }));
+    parent.u1040.beacon(u, b);
     return true;
   };
   window.reloadPage = () => parent.u1040.reload();    // the templates call these where the desktop reloaded / navigated
@@ -418,6 +427,25 @@ function toast(text) {
   clearTimeout(toastT);
   toastT = setTimeout(() => show($("toast"), false), 3200);
 }
+// a save or a data request from a page's script -> a Response, as fetch() gives. ui = the tab the page is in (its toast):
+// this tab, or the K-1 tab (web/k1tab.html), which sends its pages' requests here - one worker for both.
+async function fetchFor(url, opts, ui) {
+  const method = (opts.method || "GET").toUpperCase();
+  if (url.startsWith("/browse?")) return Response.json(await browseFile(new URLSearchParams(url.slice(8)).get("kind")));
+  let body = typeof opts.body === "string" ? opts.body : "";
+  if (method === "POST" && /^\/wip\/[0-9a-f]+\/folder$/.test(url)) body = JSON.stringify(await chooseFolder());
+  const r = await ask({ type: "request", method, url, body });
+  if (r.note) ui.toast(r.note);
+  if (r.kind === "file") return new Response(new Blob([r.body], { type: r.mime }), { status: r.status,
+    headers: { "Content-Type": r.mime, "Content-Disposition": `${r.inline ? "inline" : "attachment"}; filename="${r.filename}"` } });
+  const text = r.kind === "json" ? JSON.stringify(r.body) : String(r.body);
+  return new Response(text, { status: r.status, headers: { "Content-Type": r.kind === "json" ? "application/json" : "text/html" } });
+}
+// a page's navigator.sendBeacon (data = text or a Blob - from another window too, so no instanceof) -> a save
+async function sendBeacon(url, data, ui) {
+  const body = data && typeof data.text === "function" ? await data.text() : String(data || "");
+  return fetchFor(url, { method: "POST", body }, ui);
+}
 window.u1040 = {
   toast,
   // the same page again, drawn from the run as it is now (after a save)
@@ -425,51 +453,25 @@ window.u1040 = {
     const r = await ask({ type: "request", method: "GET", url: currentUrl });
     if (r.kind === "html") showPage(r.body, currentUrl, true);
   },
-  // a save or a data request from the page's script -> a Response, as fetch() gives
-  async fetch(url, opts) {
-    const method = (opts.method || "GET").toUpperCase();
-    if (url.startsWith("/browse?")) return Response.json(await browseFile(new URLSearchParams(url.slice(8)).get("kind")));
-    let body = typeof opts.body === "string" ? opts.body : "";
-    if (method === "POST" && /^\/wip\/[0-9a-f]+\/folder$/.test(url)) body = JSON.stringify(await chooseFolder());
-    const r = await ask({ type: "request", method, url, body });
-    if (r.note) toast(r.note);
-    if (r.kind === "file") return new Response(new Blob([r.body], { type: r.mime }), { status: r.status,
-      headers: { "Content-Type": r.mime, "Content-Disposition": `${r.inline ? "inline" : "attachment"}; filename="${r.filename}"` } });
-    const text = r.kind === "json" ? JSON.stringify(r.body) : String(r.body);
-    return new Response(text, { status: r.status, headers: { "Content-Type": r.kind === "json" ? "application/json" : "text/html" } });
-  },
-  // a link: "/" = a new run; /open?path=... = a document in its tab; anything else = a page or a download
+  fetch: (url, opts) => fetchFor(url, opts, { toast }),
+  beacon: (url, data) => sendBeacon(url, data, { toast }),
+  // a link: "/" = a new run; /open?path=... = a document in its tab; /k1v/?for=... from the Summary = the K-1 tab;
+  // anything else = a page or a download
   async go(url) {
     if (url === "/") return $("newRun").click();
     if (url.startsWith("/open?")) return openDocument(url);
+    if (url.startsWith("/k1v/?for=") && currentUrl.startsWith("/summary/")) return openK1Tab(url);
     const r = await ask({ type: "request", method: "GET", url });
     if (r.kind === "html") return showPage(r.body, url);
     if (r.kind === "file") return download(r.body, r.filename, r.mime);
     toast(r.kind === "error" ? "Something went wrong: " + r.body : "Not in the browser app yet.");
   },
-  // a form on a page (K-1 Verification on its own): each picked file is copied onto the in-memory drive, then the form's
-  // address gets {"files": {field: [paths]}, "fields": {field: text}} - the page it answers is shown. Nothing is uploaded.
-  async submit(form) {
-    const url = new URL(form.getAttribute("action") || currentUrl, "http://x").pathname;
-    const sent = { files: {}, fields: {} };
-    for (const [name, v] of new FormData(form)) {
-      if (Object.prototype.toString.call(v) === "[object File]") {   // (a File of the page's frame: not this window's File class)
-        if (!v.name) continue;
-        const path = `/client/picked/upload/${++uploads}/${v.name}`;
-        await ask({ type: "putfile", path, file: v });
-        (sent.files[name] = sent.files[name] || []).push(path);
-      } else sent.fields[name] = v;
-    }
-    toast("Reading…");
-    const r = await ask({ type: "request", method: "POST", url, body: JSON.stringify(sent) });
-    if (r.kind === "html") return showPage(r.body, url === "/k1v/" ? "/k1v/" : currentUrl);
-    toast(r.kind === "error" ? "Something went wrong: " + r.body : "Not in the browser app yet.");
-  },
 };
+// (No page has a form any more: the stand-alone K-1 reader's Read form was the only one - dropped, brief 2026-11-21.)
 // Browse… on a page (Add P&L…, Import Schedule E sheet…): the desktop opened a Windows file window and sent the file's path.
 // Here the browser's file window opens; the picked file is copied onto the in-memory drive and its path there is answered,
 // so the page's code (static/schc.js, static/sche.js) goes on as before. Nothing leaves the computer.
-// "files" = several PDFs at once (K-1 Verification → Add K-1 PDFs…).
+// "files" = several PDFs at once (K-1s → Add K-1 PDFs…).
 const BROWSE_TYPES = { pl: ".csv,.xlsx,.xlsm,.pdf", sheet: ".xlsx,.csv", files: ".pdf" };
 let uploads = 0;
 function browseFile(kind) {
@@ -513,15 +515,20 @@ async function chooseFolder() {
 // A page number (/open?path=…&page=3) moves the open PDF to that page by changing only the end of its address (#page=3),
 // which does not load the document again. One copy (blob address) is kept per document while the app is open.
 const DOC_URLS = new Map();                            // document path -> its blob address
-async function openDocument(url) {
+const docTabName = url => "u1040-doc:" + new URLSearchParams(url.slice(6)).get("path");
+function openDocument(url) {
+  const tab = window.open("", docTabName(url));        // opened now, while the click counts: the tab already open, or a new one
+  return showDocument(tab, url, { toast, download, doc: document });
+}
+// Fills the document's tab. Chrome lets only the window that was clicked open a tab, so the K-1 tab opens it itself
+// (web/k1tab.html) and hands it here: ui = that tab's toast / download / document.
+async function showDocument(tab, url, ui) {
   const q = new URLSearchParams(url.slice(6));
   const path = q.get("path"), page = q.get("page");
-  const name = "u1040-doc:" + path;
-  const tab = window.open("", name);                   // opened now, while the click counts: the tab already open, or a new one
   if (!tab) {                                          // Chrome blocked new tabs (pop-ups off for this site)
     const r = await ask({ type: "request", method: "GET", url: "/open?path=" + encodeURIComponent(path) });
-    toast("Chrome blocked the new tab — allow pop-ups for this site (icon at the right of the address bar). Downloaded instead.");
-    if (r.kind === "file") download(r.body, r.filename, r.mime);
+    ui.toast("Chrome blocked the new tab — allow pop-ups for this site (icon at the right of the address bar). Downloaded instead.");
+    if (r.kind === "file") ui.download(r.body, r.filename, r.mime);
     return;
   }
   let fresh = true;
@@ -529,18 +536,66 @@ async function openDocument(url) {
   if (!fresh) {                                        // already open: the same tab, moved to the page
     if (page) tab.location.hash = "page=" + page;
     tab.focus();
-    setTimeout(() => { if (document.hasFocus()) toast("Already open in another tab."); }, 400);
+    setTimeout(() => { if (ui.doc.hasFocus()) ui.toast("Already open in another tab."); }, 400);
     return;
   }
   let blobUrl = DOC_URLS.get(path);
   if (!blobUrl) {
     const r = await ask({ type: "request", method: "GET", url: "/open?path=" + encodeURIComponent(path) });
-    if (r.kind !== "file") { tab.close(); return toast(typeof r.body === "string" ? "Can't open it: " + r.body.slice(0, 120) : "Can't open it."); }
+    if (r.kind !== "file") { tab.close(); return ui.toast(typeof r.body === "string" ? "Can't open it: " + r.body.slice(0, 120) : "Can't open it."); }
     blobUrl = URL.createObjectURL(new Blob([r.body], { type: r.mime }));
     DOC_URLS.set(path, blobUrl);
   }
   tab.location = blobUrl + (page ? "#page=" + page : "");
 }
+// ---------------------------------------------------------------- the K-1 tab (brief 2026-11-21, step 5)
+// "Open K-1 Tab" on the Summary opens the K-1s in a browser tab of their own (web/k1tab.html). That tab has no Python: every
+// page in it (the K-1s, K-1 Verification, K-1 UT) is drawn here, by this tab's worker - one Python, one set of documents.
+// The K-1 tab calls window.opener.u1040.k1 (below) for everything; when this tab is closed or reloaded it can't any more, and
+// it says so. One K-1 tab per app tab: the K-1 tab's name carries this tab's id, which a reload keeps (sessionStorage) - so
+// after a reload "Open K-1 Tab" finds the old K-1 tab and fills it again instead of opening a second one.
+const MAIN_ID = (() => {
+  const make = () => Math.random().toString(36).slice(2, 10);
+  try { let v = sessionStorage.getItem("u1040-main-id"); if (!v) sessionStorage.setItem("u1040-main-id", v = make()); return v; }
+  catch (e) { return make(); }
+})();
+const SESSION = MAIN_ID + "-" + Date.now().toString(36);   // this load of the app: a reload makes a new one (the K-1 tab sees it)
+window.name = "u1040-main:" + MAIN_ID;
+const K1_TAB = "u1040-k1:" + MAIN_ID;
+function openK1Tab(url) {
+  const tab = window.open("", K1_TAB);                 // now, while the click counts: the K-1 tab already open, or a new one
+  if (!tab) {                                          // pop-ups off for this site: the K-1s open inside the app, as before
+    toast("Chrome blocked the new tab — allow pop-ups for this site (icon at the right of the address bar). The K-1s open here instead.");
+    return ask({ type: "request", method: "GET", url }).then(r => { if (r.kind === "html") showPage(r.body, url); });
+  }
+  let same = false;                                    // already open on this run's K-1s, connected to this load of the app
+  try { same = tab.K1TAB && tab.K1TAB.session === SESSION && tab.K1TAB.home === url; } catch (e) { /* not our page */ }
+  if (same) { tab.focus(); return; }
+  tab.location = "/k1tab.html#" + encodeURIComponent(url);
+}
+// a change made in the K-1 tab (Add to Income Summary, K-1 PDFs added, a correction ...) can change the Summary's K-1 box and
+// totals: the Summary is drawn again, at the same place on the page (one redraw after a burst of saves)
+let k1RedrawT = 0;
+function k1Changed() {
+  clearTimeout(k1RedrawT);
+  k1RedrawT = setTimeout(async () => {
+    if (!currentUrl.startsWith("/summary/")) return;
+    try { sessionStorage.setItem("scrollY", $("page").contentWindow.scrollY); } catch (e) { /* the page just goes to the top */ }
+    const r = await ask({ type: "request", method: "GET", url: currentUrl });
+    if (r.kind === "html" && currentUrl.startsWith("/summary/")) showPage(r.body, currentUrl, true);
+  }, 1200);
+}
+window.u1040.k1 = {
+  session: SESSION,
+  shim: SHIM,
+  request: (method, url, body = "") => ask({ type: "request", method, url, body }),
+  fetch: (url, opts, ui) => fetchFor(url, opts, ui),
+  beacon: (url, data, ui) => sendBeacon(url, data, ui),
+  putFiles: files => putAll(files),                    // Add K-1 PDFs… in the K-1 tab: its file window, the files go to the worker here
+  docTabName,
+  showDocument,
+  changed: k1Changed,
+};
 // ---------------------------------------------------------------- Add more documents… (brief 2026-11-17, item 1)
 // Documents that came later, added to the open run: picked with the browser's window (files, or a folder), the ones already
 // in the run left out (same file), the stuck-PDF guard on the new PDFs, then the run is read again with every document and

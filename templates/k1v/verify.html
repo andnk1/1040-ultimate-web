@@ -69,7 +69,7 @@ button.on{outline:3px solid var(--mint)}
 {%- endmacro %}
 {% set LBL = {"green":"OK","amber":"Confirm","red":"Missing / differs","manual":"Check manually","fyi":"FYI","cant":"No UT entry"} %}
 <div class="wrap">
-  {% if back %}<p class="noprint" style="font-size:.85rem;margin:0 0 10px"><a href="{{ back }}" style="color:#003366;text-decoration:none;font-weight:600">&larr; K-1 Verification</a></p>{% endif %}
+  {% if back %}<p class="noprint" style="font-size:.85rem;margin:0 0 10px"><a href="{{ back }}" style="color:#003366;text-decoration:none;font-weight:600">&larr; K-1s</a></p>{% endif %}
   <h1>1040 Verification</h1>
   <p class="subtitle">K-1s: {{ k1name }} · UltraTax Input Screens: {{ retname }} · Each K-1 item checked against what was typed on the UltraTax K-1 screens.</p>
 
@@ -119,7 +119,7 @@ button.on{outline:3px solid var(--mint)}
         <tr><th>Box</th><th class="n">K-1</th><th>Status</th><th class="n">Entered in UT</th><th>Where in UltraTax</th><th>Message</th><th class="noprint">Reviewed</th><th>Comment</th></tr>
         {% for it in c['items'] %}
         <tr class="st-{{ it.status }} item" data-id="{{ c.page }}|{{ it.key }}" data-st="{{ it.status }}">
-          <td class="box">{{ it.box }}{% if it.code %} {{ it.code }}{% endif %}{% if it.manual %}<span class="man" title="Typed in on the K-1 Interpreter page (Statement amounts), not read from the PDF">Added from statement</span>{% endif %}</td>
+          <td class="box">{{ it.box }}{% if it.code %} {{ it.code }}{% endif %}{% if it.manual %}<span class="man" title="Typed in on K-1 Verification (Statement amounts), not read from the PDF">Added from statement</span>{% endif %}</td>
           <td class="n">{% if it.kind == "type" %}{{ it.k1_type }}{% elif it.amt is not none %}{{ money(it.amt) }}{% elif it.check %}Checked{% elif it.extra %}<span class="empty">not on K-1</span>{% else %}See statement{% endif %}</td>
           <td><span class="pill {{ it.status }}">{{ LBL[it.status] }}</span></td>
           <td class="n">{% if it.kind == 'verify' %}{{ money(it.entered) }}{% elif it.kind == 'type' %}{{ it.ut_type }}{% endif %}</td>
