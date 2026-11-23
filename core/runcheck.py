@@ -438,12 +438,18 @@ def inventory_rows(r) -> list:
     Read documents are listed only (their amounts are on the income summary); a not-read document can carry
     one amount + the income line it goes to. Free lines (+) come last."""
     st = r.setdefault("invstate", {"verified": {}, "amt": {}, "notes": {}, "free": []})
+    # a 1099-SA / 1098-T / 1095-A corrected on its form tab: its note (all the summary has of it) shows the corrected amounts
+    eff = {d["did"]: d for d in fv_mod.effective_docs(r) if d.get("did")} if r.get("formview") else {}
     rows = []
     for d in r["inv"]["docs"]:
         if d["family"] == "pyreturn":
             continue
         read = d.get("read") in ("read", "partial")
         note = d.get("note") or ""
+        was = (d.get("parsed") or {}).get("inv_note") if isinstance(d.get("parsed"), dict) else None
+        now = ((eff.get(d.get("did")) or {}).get("parsed") or {}).get("inv_note") if was else None
+        if was and now and now != was and note.startswith(was):
+            note = now + note[len(was):]
         if d.get("ai_page_list") and r.get("to_ai", {}).get(d["path"]):
             note = (note + " · " if note else "") + "AI pages: " + d["ai_pages"]
         a = st["amt"].get(d["did"]) or {}
@@ -508,21 +514,22 @@ def inventory_added(r) -> list:
 
 # ---------------------------------------------------------------- form tabs of the Document inventory
 def form_view_data(r, inc, invrows, ded=None) -> dict:
-    """The Document inventory's form tabs (W2 / 1098-M = 6 forms per tab, then the form types), every W-2 / 1098 column, the
-    corrections ({form: {column: {row: value}}}), and the lines typed over on the income / deduction summary (those win)."""
+    """The Document inventory's form tabs (6 forms per tab), every form's column, the corrections ({form: {column: {row:
+    value}}}), and the summary lines typed over by the preparer for a document of that type (those win over the tab)."""
     order = [d["key"] for d in invrows if not d["free"]]
-    cols = fv_mod.columns(r, order, "w2") + fv_mod.columns(r, order, "1098")
-    typed = {"w2": {}, "1098": {}}
-    for form, summ, key in (("w2", inc, "w2"), ("1098", ded, "mortgage")):
+    cols = [c for fam in fv_mod.FAMILIES for c in fv_mod.columns(r, order, fam)]
+    fam_of = {d["file"]: d.get("family") for d in r["inv"]["docs"]}
+    typed = {f: {} for f in fv_mod.FAMILIES}
+    for summ in (inc, ded):
         for s in (summ or {}).get("sections", []):
-            if s["key"] == key:
-                for x in s["rows"]:
-                    if x.get("edited") and x.get("file"):
-                        typed[form][x["file"]] = dict(cy=x.get("cy"), fit=x.get("fit"))
+            for x in s["rows"]:
+                fam = fam_of.get(x.get("file"))
+                if x.get("edited") and fam in typed:
+                    typed[fam].setdefault(x["file"], []).append(dict(what=s.get("label") or s["key"], cy=x.get("cy"), fit=x.get("fit")))
     py_year = r["py"].get("year")
     cy_year = (py_year or 0) + 1 if py_year else None
     fvs = r.get("formview") or {}
-    return dict(tabs=fv_mod.tabs(r, cols), defs=fv_mod.DEFS, cols=cols, edits={f: fvs.get(f) or {} for f in fv_mod.FORMS},
+    return dict(tabs=fv_mod.tabs(r, cols), defs=fv_mod.DEFS, cols=cols, edits={f: fvs.get(f) or {} for f in fv_mod.FAMILIES},
                 typed=typed, codes=fv_mod.W2_12, year=cy_year, base=fv_mod.WAGE_BASE.get(cy_year), rate=fv_mod.SS_RATE,
                 per=fv_mod.PER_TAB)
 

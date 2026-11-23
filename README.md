@@ -101,7 +101,9 @@ The section starts closed (arrow), like every section with an arrow.
 ## Form tabs (inside the Document inventory)
 Tabs under the Document inventory header, all the same size: **Summary** (the table above), **W2**, then 1098-M, 1098-T, 1099-B,
 1099-Comp, 1099-DA, 1099-DIV, 1099-G, 1099-INT, 1099-NEC, 1099-R (alphabetical; other form types get a tab when the client has one).
-"(2)" after a name = how many; no number when none. **W2** and **1098-M** work — the others say "Form view coming soon".
+"(2)" after a name = how many forms; no number when none. Every form type the program reads has its form view (2026-11-23);
+1099-G, 1099-K and 5498 have no reader yet — their tabs list the documents (the name opens the document). Under every table, the
+documents of that type with no column (not read, excluded) are listed the same way.
 - **W2**: always 6 columns + Total on the screen (W-2s 7–12 on W2_2 …); each column headed by the employee name (box e) · the
   employer's first word (box c); hover shows the full employer name and the EIN. A name the program didn't read shows a message and
   the file name.
@@ -112,6 +114,15 @@ Tabs under the Document inventory header, all the same size: **Summary** (the ta
 - Excess Social Security check per employee name (2+ W-2s).
 - **1098-M**: the same layout for the mortgage 1098s — header = borrower · first word of the lender (hover: lender, account, file);
   boxes 1–9 and one line per box 10 description. Changes go to the deduction summary after **Refresh the deduction summary**.
+- **1099-R, 1099-SA, 1098-E, SSA-1099, 1098-T, 1095-A**: one column per form (two different forms in one file = two columns; copies
+  count once — same federal key boxes), the boxes the program reads; header = the issuer (or the file name). 1099-SA, 1098-T and
+  1095-A are not income: a change goes to their note on the Document inventory.
+- **1099-Comp, 1099-B, 1099-DA, 1099-DIV, 1099-INT, 1099-OID, 1099-MISC, 1099-NEC**: one layout — a brokerage statement is one
+  column, a bank 1099-INT / IRS-layout MISC or NEC one column per form. Sections show only when a form in the tab has them:
+  1099-INT, OID, DIV, MISC, NEC boxes, 1099-B totals by term (proceeds, cost, market discount, wash sale, gain), one line per Form
+  8949 box, §1256 box 11, federal withholding. Totals only, no transactions. A term's gain with Form 8949 box lines is their sum
+  (correct the box lines).
+- A correction gives the same summary as if the program had read that value: the reader's own result is worked out again with it.
 
 ## Income and Deduction Summary — Prior Year · per document · corrected amount
 One box (always open): the income table, then the deduction table. Every other section has an arrow and starts closed.

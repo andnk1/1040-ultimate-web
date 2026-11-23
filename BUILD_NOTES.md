@@ -3,7 +3,7 @@
 Hand-off for a new Claude session: the working rules, what's decided but not built, the open questions and the pending list.
 Finished, settled work is in **BUILD_HISTORY.md** (moved there unchanged, in date order — the "history:" names below are its
 section titles — written for the desktop app: its rules stay, its desktop details don't); a screen with a spec is in
-`design\` (e.g. `design\k1_prep.md`). Last updated 2026-11-21.
+`design\` (e.g. `design\k1_prep.md`). Last updated 2026-11-23.
 
 ## One version only — the browser app (Lady, 2026-11-17)
 - The desktop app (local Python / Flask server) is **retired**. All work happens on the browser app only: this folder,
@@ -256,6 +256,58 @@ section titles — written for the desktop app: its rules stay, its desktop deta
     Summary (3 K-1s, 3 lines) → back to the Summary: "K-1s added" with the lines; K-1 UT with its refusals shown ("Nothing
     to export - no K-1 is Ready"); the reader on its own with a picked K-1. The new tabs (totals, by-hand print page) are
     for Lady to try in Chrome (the test pane blocks pop-ups).
+- **2026-11-23 — copies vs different forms: the W-2 rule everywhere** (Lady; first part of the form tabs brief
+  `design\brief_2026-11-23_form_tabs.md`, whose decisions are written at its top):
+  - Two forms in one file are the same form (Copy B / C / 1 / 2 …) when their **federal key boxes** match; state / local
+    boxes never count. The copies are merged: a later copy only fills in boxes the first one missed. Key boxes
+    (`core\parsers.py` `KEY_BOXES`): W-2 1, 2, 3, 5 (unchanged) · 1099-R 1, 2a, 4 + box 7 code · MISC 1, 2, 3, 4 ·
+    NEC 1 (1a), 4 · INT 1, 3, 4 · 1099-SA 1, 2 (SSA 5, 4, 1098-T 1, 5 and 1095-A line 33 column C are for the brief's
+    "more than one form" note - Lady, 2026-11-23).
+    1098-E unchanged (its reader already compares box 1 only).
+  - Before, the 1099-R / MISC / NEC / INT (bank layout) / SA readers compared every amount, so a state copy with other
+    state tax counted twice. Now it counts once. Also new: two 1099-Rs with the same amounts but another code are two forms
+    (before: one).
+  - Changed: `parse_1099_form`, `parse_1099r` (IRS and list layout), `parse_1099int_rows`, `parse_1099sa`; shared
+    helpers `_key`, `_add_copy`, `_add_up`.
+  - Tests: `tests\test_copies.py` (made-up forms: state copy once, different forms added, a copy filling a missing box,
+    another code = another form); 6 of its 7 fail on the old code. Full suite: 69 passed, the known `test_cases_found`.
+    Both sample clients = the archive (this computer); Sample = the archive in the browser (0 differences). No sample has
+    a state copy with other amounts, so the samples didn't change.
+- **2026-11-23 — form tabs for every document type** (Lady: "Go"; brief `design\brief_2026-11-23_form_tabs.md`, its decisions
+  at its top): no more "Form view coming soon".
+  - **One column per form, never added together** (also 1099-R, 1098-E, bank 1099-INT, MISC, NEC). The readers keep each
+    different form (`per_form`) and say which reader made the result (`reader`); the income summary still gets one line per
+    document with the forms added, as before (as W-2).
+  - **Built:** 1099-R, 1099-SA, 1098-E, SSA-1099, 1098-T, 1095-A (own layouts), and one layout ("1099") for 1099-Comp,
+    1099-B, 1099-DA, 1099-DIV, 1099-INT, 1099-OID, 1099-MISC, 1099-NEC — a brokerage statement = one column; sections show
+    only when a form in the tab has them (INT, OID, DIV, MISC, NEC, 1099-B totals by term, Form 8949 box lines, §1256,
+    withholding). Header = the issuer (these readers keep no person / payer name), else the file name.
+  - **Corrections = the reader's own result again:** each reader's "boxes → summary" step is now its own function, code
+    moved, not changed (`form_1099_result`, `r1099_result`, `int_rows_result`, `e1098_result`, `ssa_result`, `sa_result`,
+    `t1098_result`, `a1095_result`; brokerage statements `statement_again`, which reruns `_amounts_1099` and keeps what the
+    first read took from the page text, e.g. "not read: 1099-DIV" - dropped once the preparer types that box). `parse_1099`
+    keeps the no-basis proceeds and the Form 8949 box rows for it (`redo_inputs`). `core\formview.py` `FAMILIES`: per
+    form type its columns and its result again. No tab is view-only.
+  - **1099-B:** the Form 8949 box lines are corrected; a term's gain is their sum (shown, not typed) when the term has box
+    lines, typed when it has none - so the box rows always add up (Lady's "Yes" to the recommendation).
+  - **1099-SA, 1098-T, 1095-A** are not income: a correction changes their note on the Document inventory.
+  - **"This file seems to hold more than one <form> — check"** (SSA-1099 box 5 / 4, 1098-T 1 / 5, 1095-A line 33C on
+    another page with other amounts): SSA in the summary comment, 1098-T / 1095-A at the end of the inventory note.
+  - **1099-G, 1099-K, 5498:** no reader - their tabs list the documents (the name opens it), "no reader for this form yet".
+    Under every table, the documents of that type with no column (not read, excluded - e.g. a 1099-DA when a crypto report
+    is used) with the reason.
+  - `tests\harness.py` keeps its per-form rows for W-2 / 1098 only (fixed list), so the answer keys and the archive check
+    compare the same rows as before.
+  - Tests: `tests\test_form_tabs.py` (14): made-up PDFs read with one value and corrected to another = the same PDF read with
+    the other value (MISC, NEC, 1099-R with two forms, bank INT, 1098-E, SSA, 1098-T, a "BOX n:" statement); a composite's
+    8949 box line; 1095-A / 1099-SA; the list tabs; on Sample every document's columns give back exactly what its reader
+    gave, the tabs, a composite dividend correction reaching the summary. Full suite: 83 passed, the known `test_cases_found`.
+    Both sample clients = the archive (this computer); Sample = the archive in the browser (0 differences).
+  - **Tried in the browser (Sample):** the tabs (1099-Comp 5 columns with INT / DIV / 1099-B totals / 8949 box lines /
+    withholding, 1099-R, 1099-SA, the empty and list tabs); a 1099-R box 2a correction → the refresh banner → the income
+    summary shows it.
+  - **Built, not tried on a real document** (no sample has them): 1098-T, 1098-E, SSA-1099, 1095-A, stand-alone 1099-INT /
+    DIV / B / OID / DA, 1099-MISC, 1099-NEC (made-up forms only). On real documents: 1099-R, 1099-SA, the composites.
 - **Phase 1 built (2026-11-16, in the old folder):**
   - `core\pdfengine.py` is the one PDF door: nothing else in `core\` imports PyMuPDF (`pdfutil.py`, `utscreens.py`,
     `ai\docs.py`, `k1v\ut_entry.py` go through it). Its header lists what the browser stand-in (MuPDF.js) must cover.
@@ -432,8 +484,8 @@ section titles — written for the desktop app: its rules stay, its desktop deta
 - **Fillable PDFs flattened** before the readers and the AI (small step, can come first) — same section.
 - **Masking and the Print return app = separate apps;** the masking code to take out of the 1040 is listed there —
   history: "Masking and printing = separate apps" (2026-11-02).
-- **Form view for the other forms:** 1099 composite next (sub-tabs, B-Summary totals only), then the single forms —
-  history: "Form view — next forms" (2026-10-31).
+- **Form view — what is left** (the form tabs were built 2026-11-23, see the status): a reader for 1099-G, 1099-K and 5498 (their
+  tabs only list the documents); per-form reading for SSA-1099, 1098-T, 1095-A (pending list 2026-11-23).
 - **Generic export CSV for every form + an export button per form tab** — history: "K-1 Prep and UT data entry" (2026-11-05);
   pending item 2 of the 2026-11-05 list.
 
@@ -469,6 +521,11 @@ List of 2026-11-21 (after the K-1s tab brief):
   the box number as the word just left of the name on the same row. The function is shared with MISC / NEC / SA / 1098-E,
   so check the archive. Also `_r_extras`: find the label printed as "IRA/SEP/" + "SIMPLE" on the next line. Test with a
   made-up form built the same way (not the client's file).
+
+List of 2026-11-23 (form tabs brief):
+- 1. **Per-form reading for SSA-1099, 1098-T, 1095-A** (later, Lady). Until then they read one form per file; the brief adds
+  the note "This file seems to hold more than one <form> — check." Today the 1098-T takes the first value of each box from
+  any page and the 1095-A the last line 33 it finds, so a file with two forms can mix them.
 
 Decided not to build: a document-type dropdown — history: "Decided not to build" (2026-11-02).
 

@@ -253,6 +253,9 @@ SKIP_DETAIL = {"w2": {"boxes", "w2"}, "1098": {"boxes"}}
 
 def rows_documents(r: dict) -> list:
     import core.formview as fv
+    # W-2 / 1098: the answer keys list each form's boxes (row keys); every other form its reader's detail. Fixed here, so a
+    # new form tab (core/formview.py FAMILIES) doesn't change the rows the answer keys and the archive check compare.
+    ROW_FORMS = {"w2": fv.w2_rows, "1098": dict}
     out = []
     for d in r["inv"]["docs"]:
         if d.get("family") == "pyreturn":
@@ -262,11 +265,11 @@ def rows_documents(r: dict) -> list:
         out += [(f, "", "Type", d.get("doc_type")), (f, "", "Issuer", d.get("issuer")), (f, "", "Tax year", d.get("year")),
                 (f, "", "Program read", d.get("read") or "none")]
         fam = d.get("family")
-        if fam in fv.FORMS:
+        if fam in ROW_FORMS:
             forms = fv.forms_of(d, fam)
             out.append((f, "", "Forms read", len(forms)))
             for i, one in enumerate(forms):
-                for k, v in fv.FORMS[fam][0](one).items():
+                for k, v in ROW_FORMS[fam](one).items():
                     out.append((f, i + 1, _fv_label(fam, k), v))
         k1s = [k for fn, k in r.get("_test_k1") or [] if fn == f]
         if k1s:
@@ -285,7 +288,7 @@ def rows_documents(r: dict) -> list:
                 out.append((f, i + 1, "K-1 name", k.get("name")))
                 for kk, v in sorted((k.get("amounts") or {}).items()):
                     out.append((f, i + 1, f"amounts.{kk}", v))
-        elif isinstance(p, dict) and fam not in fv.FORMS and d.get("route") != "k1v":
+        elif isinstance(p, dict) and fam not in ROW_FORMS and d.get("route") != "k1v":
             flat = []
             _flat("", {k: v for k, v in (p.get("detail") or {}).items() if k not in SKIP_DETAIL.get(fam, ())}, flat)
             for k, v in flat:

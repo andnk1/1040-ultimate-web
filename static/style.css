@@ -280,6 +280,9 @@ table.carryadd th:nth-child(2){width:28%}table.carryadd th:nth-child(3){width:18
 .invtabs .tabbtn{flex:1 1 0;min-width:78px;padding:8px 4px;text-align:center;white-space:nowrap}
 .bizpick .tabbtn.soon:not(.on){color:#6B7280}
 .fvsoon{font-size:.9rem;padding:14px 4px}
+/* a 1099-B term's gain made from its Form 8949 box rows (not typed); the documents of a type with no column */
+table.fvt td.fvlock{text-align:right;color:#4B5563;padding-right:22px}
+.fvothers{margin:10px 4px 4px;font-size:.9rem}.fvothers ul{margin:4px 0 0 18px;padding:0}.fvothers li{margin:2px 0}
 table.fvt th.fvdoc{vertical-align:bottom;white-space:normal;overflow-wrap:anywhere}
 table.fvt .fvname{display:block}
 table.fvt .fverr{display:block;font-size:.72rem;font-weight:600;color:var(--amb);background:var(--ambbg);border-radius:4px;padding:1px 6px;margin-top:3px;text-align:left}
