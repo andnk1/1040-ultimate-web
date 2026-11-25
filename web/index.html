@@ -434,6 +434,9 @@ async function fetchFor(url, opts, ui) {
   if (url.startsWith("/browse?")) return Response.json(await browseFile(new URLSearchParams(url.slice(8)).get("kind")));
   let body = typeof opts.body === "string" ? opts.body : "";
   if (method === "POST" && /^\/wip\/[0-9a-f]+\/folder$/.test(url)) body = JSON.stringify(await chooseFolder());
+  if (method === "POST" && /^\/verify\/[0-9a-f]+\/run$/.test(url)) body = JSON.stringify(await guardVerify(JSON.parse(body || "{}")));
+  if (method === "POST" && /^\/verify\/[0-9a-f]+\/master$/.test(url))
+    body = JSON.stringify(await masterFile(JSON.parse(body || "{}").action));
   const r = await ask({ type: "request", method, url, body });
   if (r.note) ui.toast(r.note);
   if (r.kind === "file") return new Response(new Blob([r.body], { type: r.mime }), { status: r.status,
@@ -461,6 +464,7 @@ window.u1040 = {
     if (url === "/") return $("newRun").click();
     if (url.startsWith("/open?")) return openDocument(url);
     if (url.startsWith("/k1v/?for=") && currentUrl.startsWith("/summary/")) return openK1Tab(url);
+    if (/^\/verify\/[0-9a-f]+$/.test(url)) await masterAuto(url.split("/")[2]);
     const r = await ask({ type: "request", method: "GET", url });
     if (r.kind === "html") return showPage(r.body, url);
     if (r.kind === "file") return download(r.body, r.filename, r.mime);
@@ -472,7 +476,7 @@ window.u1040 = {
 // Here the browser's file window opens; the picked file is copied onto the in-memory drive and its path there is answered,
 // so the page's code (static/schc.js, static/sche.js) goes on as before. Nothing leaves the computer.
 // "files" = several PDFs at once (K-1s → Add K-1 PDFs…).
-const BROWSE_TYPES = { pl: ".csv,.xlsx,.xlsm,.pdf", sheet: ".xlsx,.csv", files: ".pdf" };
+const BROWSE_TYPES = { pl: ".csv,.xlsx,.xlsm,.pdf", sheet: ".xlsx,.csv", files: ".pdf", pdf: ".pdf" };
 let uploads = 0;
 function browseFile(kind) {
   const given = window.u1040Test.nextPick;             // (automated checks only: the files the file window would give)
@@ -488,15 +492,80 @@ function browseFile(kind) {
 
 // A picked file that is one of the client's documents keeps that document's path (so the K-1 work file finds it again
 // when the client folder is opened next time); any other file gets its own place on the in-memory drive.
+const PICKED = new Map();                              // path on the in-memory drive -> the picked file (Verify's stuck-PDF guard)
 async function putAll(files) {
   const paths = [];
   for (const g of files) {
     const f = g.file || g, hit = DOCS.find(d => same(d.file, f));
     const path = hit ? docPath(hit) : `/client/picked/upload/${++uploads}/${f.name}`;
     await ask({ type: "putfile", path, file: f });
+    PICKED.set(path, f);
     paths.push(path);
   }
   return { paths, path: paths[0] || "" };
+}
+
+// ---------------------------------------------------------------- Verify return (web/py/pages/verify.py)
+// Check: the picked UT input screens print / 2025 return are opened first in the stuck-PDF guard with the desktop's 90 s;
+// a stuck one goes to Python as "stuck" (the desktop's message) instead of being read.
+async function guardVerify(b) {
+  for (const key of ["ut", "path"]) {
+    const f = PICKED.get(b[key]);
+    if (!f || !isPdf(f.name)) continue;
+    const seconds = window.u1040Test.probeLimit || LIMIT.single;
+    const passwords = await callPy("password_candidates", [f.name]);
+    const r = await probeOne(f, passwords[0] || [], seconds);
+    if (r.stuck) { b.stuck = await callPy("stuck_message", f.name, r.stuck, seconds); break; }
+  }
+  return b;
+}
+// The master checklist: a file on the shared drive, picked once (Lady, 2026-11-24). Chrome keeps the file's handle in this
+// site's storage (IndexedDB), so the next session finds it again; Chrome may ask once per session before the app can use it.
+// The file's text goes to Python, which keeps it at core/verify.py MASTER on the in-memory drive; each change Python saves
+// there is written back to the shared file (PLACES -> saveFile).
+const kv = (mode, fn) => new Promise((resolve, reject) => {
+  const o = indexedDB.open("u1040", 1);
+  o.onupgradeneeded = () => o.result.createObjectStore("kv");
+  o.onerror = () => reject(o.error);
+  o.onsuccess = () => {
+    const tx = o.result.transaction("kv", mode), q = fn(tx.objectStore("kv"));
+    tx.oncomplete = () => resolve(q.result);
+    tx.onerror = () => reject(tx.error);
+  };
+});
+const kvGet = k => kv("readonly", s => s.get(k)).catch(() => null);
+const kvSet = (k, v) => kv("readwrite", s => s.put(v, k)).catch(() => null);
+let masterPath = "", masterTried = false;
+const JSON_TYPE = [{ description: "Master checklist", accept: { "application/json": [".json"] } }];
+// action: "choose" / "create" (Chrome's file window), "allow" (ask Chrome for the remembered file), "auto" (the remembered
+// file, only if Chrome already allows it) -> what the page sends Python (pages/verify.py master)
+async function masterFile(action) {
+  masterPath = masterPath || await callPy("master_path");
+  let h = null;
+  try {
+    if (action === "choose") [h] = await window.showOpenFilePicker({ types: JSON_TYPE });
+    else if (action === "create") h = await window.showSaveFilePicker({ suggestedName: "checklist_master.json", types: JSON_TYPE });
+    else h = await kvGet("master");
+  } catch (e) {
+    return { cancelled: true, error: window.showOpenFilePicker ? "" : "This browser can't keep a file on the shared drive — use Chrome or Edge." };
+  }
+  if (!h) return { cancelled: true };
+  const opts = { mode: "readwrite" };
+  let perm = await h.queryPermission(opts);
+  if (perm !== "granted" && action !== "auto") perm = await h.requestPermission(opts).catch(() => "denied");
+  if (perm !== "granted") return action === "auto" ? { name: h.name, waiting: true } : { cancelled: true, error: "Chrome didn't allow the app to use " + h.name + "." };
+  await kvSet("master", h);
+  const i = PLACES.findIndex(p => p.place === masterPath);
+  if (i >= 0) PLACES.splice(i, 1);
+  addPlace(masterPath, h);
+  return { name: h.name, text: action === "create" ? "" : await (await h.getFile()).text() };
+}
+// the first time Verify return opens in this session: the remembered master file, if there is one
+async function masterAuto(token) {
+  if (masterTried) return;
+  masterTried = true;
+  const b = await masterFile("auto").catch(() => ({ cancelled: true }));
+  if (!b.cancelled) await ask({ type: "request", method: "POST", url: `/verify/${token}/master`, body: JSON.stringify(b) });
 }
 
 // "Choose a folder…" (the Summary, when there is no folder to save the work in): Chrome's folder window, with write access

@@ -21,7 +21,7 @@ from core.inventory import ROUTE_LBL
 from core.pl import MAP_LINES as PL_MAP_LINES, book_tax_csv, other_expenses_csv, read_pl, workpaper_csv
 from core.py_return import SCHC_LINES, SCHE_LINES
 
-from . import NotFound, data, file, get_run, page, render, save_work
+from . import NotFound, data, file, get_run, page, render, save_work, shown_folder
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 CSV = "text/csv"
@@ -62,8 +62,24 @@ def save_edits(token: str, sent: dict):
     from core.income import per_doc, stamp_edits
     r = get_run(token)
     inc, ded = runcheck.summaries(r)
-    r["edits"] = stamp_edits(sent or {}, r.get("edits"), per_doc(inc, ded))
+    sent = _without_locked(sent or {}, r.get("edits") or {}, inc, ded)
+    r["edits"] = stamp_edits(sent, r.get("edits"), per_doc(inc, ded))
     return data({"ok": True})
+
+
+def _without_locked(sent: dict, old: dict, inc: dict, ded: dict) -> dict:
+    """A document the program read is corrected on its own screen, not here (Lady, 2026-11-24 - core/income.py
+    where_to_correct). On those rows only the comment is taken; an amount typed anyway is left out - except a correction saved
+    before the lock, which comes back unchanged and is kept (it still counts; the row says to move it)."""
+    locked = {x["id"] for t in (inc, ded) for sec in t["sections"] for x in sec["rows"] if x.get("lock")}
+    out = {}
+    for rid, e in sent.items():
+        if rid in locked and isinstance(e, dict):
+            prev = old.get(rid) or {}
+            e = {k: v for k, v in e.items() if k not in ("cy", "fit")}
+            e.update({k: prev[k] for k in ("cy", "fit") if k in prev})     # a correction saved before the lock stays as it was
+        out[rid] = e
+    return out
 
 
 def confirm_edit(token: str, sent: dict):
@@ -172,7 +188,7 @@ def wip_save(token: str, sent: dict | None = None):
     r = get_run(token)
     path = save_work(r)
     if path:
-        return data(dict(ok=True, file=Path(path).name, folder=_shown_folder(path), at=r.get("wip_saved") or datetime.now().strftime("%H:%M")))
+        return data(dict(ok=True, file=Path(path).name, folder=shown_folder(path), at=r.get("wip_saved") or datetime.now().strftime("%H:%M")))
     if not r.get("wip_path"):
         return data(dict(ok=False, nofolder=True, error="No place to save yet - choose a folder."))
     return data(dict(ok=False, error=r.get("wip_error") or "Couldn't save the work in progress."))
@@ -186,17 +202,9 @@ def wip_folder(token: str, sent: dict):
     if (sent or {}).get("cancelled") or not (sent or {}).get("folder"):
         return data(dict(cancelled=True))
     r["wip_path"] = wip_mod.new_path(sent["folder"], r)
+    r.setdefault("places", []).append(sent["folder"].rstrip("/") + "/")   # Chrome lets the app write in it (Verify's review Excel)
     saved = save_work(r)
     return data(dict(saved=saved, error=r.get("wip_error")))
-
-
-def _shown_folder(path: str) -> str:
-    """Where the file is, as the preparer knows it: the client folder's name and sub-folders (not the in-memory drive)."""
-    parts = Path(path).parent.parts
-    for lead in (("/", "client", "docs"), ("/", "client", "save"), ("/", "client", "picked")):
-        if parts[:3] == lead:
-            return "/".join(parts[3:]) or parts[-1]
-    return str(Path(path).parent)
 
 
 # ---------------------------------------------------------------- form tabs (W2, 1098-M) and the UT summary

@@ -95,9 +95,11 @@
 
   {# ------------------------------------------------ income summary (full width) #}
   {% macro inp(v, kind, d) -%}
-  <input class="amt cyin" data-kind="{{ kind }}" data-read="{{ ('%.2f' % (d['read_' ~ kind] if d.edited else v)) if (d['read_' ~ kind] if d.edited else v) is not none else '' }}"
+  {#- a document the program read: read-only here, corrected on its own screen (d.lock says which - core/income.py) #}
+  <input class="amt cyin{{ ' locked' if d.lock }}" data-kind="{{ kind }}" data-read="{{ ('%.2f' % (d['read_' ~ kind] if d.edited else v)) if (d['read_' ~ kind] if d.edited else v) is not none else '' }}"
          data-v="{{ '%.2f' % v if v is not none else '' }}" data-shown="{{ '{:,.0f}'.format(v) if v is not none else '' }}"
-         value="{{ '{:,.0f}'.format(v) if v is not none else '' }}">
+         value="{{ '{:,.0f}'.format(v) if v is not none else '' }}"
+         {%- if d.lock %} readonly data-lock="{{ d.lock }}" title="Read from the document — change it on {{ d.lock }}"{% endif %}>
   {%- endmacro %}
   {% macro secrows(sections, fitcol=True) -%}
         {% for s in sections %}
@@ -120,7 +122,8 @@
             <td class="n doccol">{{ money(d.doc_cy) }}</td>
             <td class="n"{% if d.sche is defined %} data-sche="{{ d.sche }}"{% elif d.schc is defined %} data-schc="{{ d.schc }}"{% endif %}>{% if d.excluded %}{% else %}{{ inp(d.cy, 'cy', d) }}{% endif %}</td>
             <td class="n">{% if fitcol and not d.excluded and d.schc is not defined and d.sche is not defined and not d.inv %}{{ inp(d.fit, 'fit', d) }}{% endif %}</td>
-            <td class="note">{% if d.stale %}<div class="flag stale">document amount changed since your correction — re-confirm
+            <td class="note">{% if d.kept %}<div class="flag kept">corrected here before amounts from documents were locked — still counts;
+              move the correction to {{ d.lock }}</div>{% endif %}{% if d.stale %}<div class="flag stale">document amount changed since your correction — re-confirm
               <button type="button" class="light small noprint" onclick="reconfirm(this)">Re-confirm</button></div>{% endif %}
               {%- if d.inv %}<input class="txt notein invnote" data-invid="{{ d.id }}" value="{{ d.note }}" placeholder="Comment" title="The inventory note">
               {%- else %}<textarea class="noteed{{ ' edited' if d.note_edited }}" rows="1" data-orig="{{ d.read_note if d.note_edited else d.note }}">{{ d.note }}</textarea>{% endif %}</td>
@@ -354,6 +357,23 @@ document.addEventListener('change', e => {
   if (!e.target.classList.contains('toai')) return;
   window.toaiPending = fetch('/toai/{{ token }}', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({[e.target.dataset.path]: e.target.checked})});   // "Send to AI tab" waits for it
 });
+// a document the program read is corrected on its own screen, not here (Lady, 2026-11-24): typing in its box (read-only)
+// shows where to change it
+let lockT;
+function lockWarn(el) {
+  let tip = document.getElementById('lockTip');
+  if (!tip) { tip = document.createElement('div'); tip.id = 'lockTip'; tip.className = 'locktip'; document.body.appendChild(tip); }
+  tip.textContent = 'Read from the document — change the amount on ' + el.dataset.lock + '.';
+  const b = el.getBoundingClientRect();
+  tip.style.top = (window.scrollY + b.bottom + 4) + 'px';
+  tip.style.left = Math.max(8, window.scrollX + b.right - 340) + 'px';
+  tip.style.display = 'block';
+  clearTimeout(lockT); lockT = setTimeout(() => { tip.style.display = 'none'; }, 3500);
+}
+document.addEventListener('keydown', e => {
+  if (e.target.classList && e.target.classList.contains('locked') && !['Tab', 'Shift', 'Escape'].includes(e.key)) lockWarn(e.target);
+});
+document.addEventListener('paste', e => { if (e.target.classList && e.target.classList.contains('locked')) lockWarn(e.target); });
 // inventory lines on the income summary: the comment is the inventory note (saved there too)
 let invNT;
 document.addEventListener('input', e => {

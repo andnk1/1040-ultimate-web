@@ -180,6 +180,11 @@ table.v tr.badrow td{background:#FFF5F5}
 #clTable select{font-size:.82rem;padding:2px 4px;border:1px solid var(--grey);border-radius:4px;font-family:inherit}
 #clTable input.txt{width:100%;box-sizing:border-box;padding:4px 6px;border:1px solid var(--grey);border-radius:5px;font-size:.84rem;font-family:inherit}
 
+/* a read document's amount on the summary: corrected on its own screen only (Lady, 2026-11-24) */
+table.inc input.amt.locked{background:transparent;border-color:transparent;cursor:default}
+.locktip{position:absolute;z-index:50;display:none;width:330px;background:#FFF8E1;border:1px solid #E0C36A;color:#5D4300;
+  border-radius:6px;padding:6px 9px;font-size:.8rem;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+table.inc .flag.kept{color:#8A5A00;font-weight:700;font-size:.76rem}
 table.inc .chg{color:#446B67;font-weight:700;font-size:.76rem;margin-bottom:2px}
 table.inc .stale{font-size:.76rem;margin-bottom:2px}
 .mine{color:#446B67}
@@ -191,7 +196,7 @@ table.invt input.amt.edited{border-color:#446B67;color:#446B67;font-weight:700}
 table.invt select.isec{font-size:.82rem;padding:3px 4px;border:1px solid var(--grey);border-radius:5px;font-family:inherit;max-width:220px}
 table.invt tr.vok td{background:#E8F8F5}
 table.invt td.ck input.ver{accent-color:#2E7D32}
-table.invt td:nth-child(8){min-width:260px}
+table.invt td:nth-child(9){min-width:260px}             /* the Note column */
 tr.ambrow td{background:#FFF8E1}
 
 /* comments boxes */
@@ -246,6 +251,11 @@ tr.ambrow td{background:#FDF0F0}
 table.v tr.mk.done.ambrow td, table.v tr.mk.done.badrow td{background:#E8F8F5}
 table.inc tr.docrow:not(.added):not(.red):not(.st-none) input.cyin.edited{background:#FDF0F0;color:#1F5FBF;font-weight:400}
 table.v.dv input.mkn{width:100%;min-width:140px}
+/* Verify return, 2 · UltraTax entries with no document: screen, entry, what, amount and page only as wide as their text
+   (they sit together on the left), the comment takes the rest of the line (Lady, 2026-11-24) */
+table.v.back td:not(.cm), table.v.back th:not(:last-child){width:1%;white-space:nowrap}
+table.v.back td.en{white-space:normal;min-width:16em}  /* a long entry (a Rent line) wraps instead of pushing the comment */
+table.v.back input.mkn{width:100%;box-sizing:border-box;min-width:140px}
 table.v.dv td{vertical-align:top}
 #scheBox table.sct{max-width:1500px}
 #scheBox table.sce td:nth-child(n+3){width:150px}
@@ -280,6 +290,8 @@ table.carryadd th:nth-child(2){width:28%}table.carryadd th:nth-child(3){width:18
 .invtabs .tabbtn{flex:1 1 0;min-width:78px;padding:8px 4px;text-align:center;white-space:nowrap}
 .bizpick .tabbtn.soon:not(.on){color:#6B7280}
 .fvsoon{font-size:.9rem;padding:14px 4px}
+/* the Document inventory's SSN column (last 4 + name): narrow */
+table.invt th.ssn,table.invt td.ssn{width:1%;white-space:nowrap;font-size:.8rem;font-variant-numeric:tabular-nums}
 /* a 1099-B term's gain made from its Form 8949 box rows (not typed); the documents of a type with no column */
 table.fvt td.fvlock{text-align:right;color:#4B5563;padding-right:22px}
 .fvothers{margin:10px 4px 4px;font-size:.9rem}.fvothers ul{margin:4px 0 0 18px;padding:0}.fvothers li{margin:2px 0}
@@ -296,13 +308,19 @@ table.fvt .fvs0,table.fvt .fvs1,table.fvt .fvs2{position:sticky;z-index:2}
 table.fvt thead .fvs0,table.fvt thead .fvs1,table.fvt thead .fvs2{z-index:4;text-align:left;color:#fff}
 table.fvt .fvs0{left:0;width:34px;text-align:center}
 table.fvt .fvs1{left:34px;width:40px;color:#6B7280;white-space:nowrap}
-table.fvt .fvs2{left:74px;width:230px;border-right:1px solid var(--line)}
+table.fvt .fvs2{left:74px;width:200px;border-right:1px solid var(--line)}
 table.fvt th.fvtot,table.fvt td.fvtot{text-align:right;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
 table.fvt td.fvtot{background:#F7F7FB}
 table.fvt tr.fvsec td{background:var(--cardbg);font-weight:700;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--teal)}
-table.fvt td.fvc{padding:3px 6px;white-space:nowrap}
+table.fvt td.fvc{padding:3px 4px;white-space:nowrap}
+/* 8 forms per tab (Lady, 2026-11-23): the SSN / Name and Document lines wrap inside the column, never widen it */
+table.fvt tr.fvmeta td.fvc{white-space:normal;overflow-wrap:anywhere;font-size:.74rem;color:#4B5563;line-height:1.25}
+table.fvt tr.fvmeta td.fvs2{color:#6B7280;font-size:.8rem}
+table.fvt .fvdim{color:#9CA3AF;font-style:italic}
+table.fvt .fvdocname{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:#6B7280;font-size:.72rem}
+table.fvt tr.fvboxhead td{background:#F7F7FB;font-weight:600;font-size:.78rem;color:var(--ink)}
 .fvcw{position:relative;display:flex;justify-content:flex-end;align-items:center}
-table.fvt input.fvin{width:100%;min-width:0;border:1px solid var(--grey);border-radius:5px;padding:3px 22px 3px 6px;font:inherit;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);background:#fff}
+table.fvt input.fvin{width:100%;min-width:0;border:1px solid var(--grey);border-radius:5px;padding:3px 18px 3px 4px;font:inherit;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);background:#fff}
 table.fvt input.fvin.txt{text-align:left}
 table.fvt input.fvin.bad{border-color:var(--bad)}
 table.fvt input.fvchk{margin:4px 24px 4px 0;width:15px;height:15px}

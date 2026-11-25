@@ -121,6 +121,35 @@ def save_k1_work(r: dict, files: list, state) -> str | None:
     return path
 
 
+def write_out(path: str) -> None:
+    """A file Python just wrote on the in-memory drive -> the page writes it into the matching folder / file on the computer
+    (web/index.html saveFile: only where Chrome let the app write). On this computer's Python (the tests) nothing more."""
+    try:
+        import webhost                                   # only inside the browser (web/worker.js)
+    except ImportError:
+        return
+    webhost.save(path, Path(path).read_bytes())
+
+
+def writable_folder(r: dict) -> str | None:
+    """The work-in-progress folder when Chrome lets the app write in it (a folder added with Add a folder… or chosen with
+    Choose a folder… - r["places"], see webapp.run_check), else None. A work in progress picked alone with Browse… gives
+    write access to that one file only, not to its folder."""
+    wip = r.get("wip_path")
+    if wip and any(p.endswith("/") and wip.startswith(p) for p in r.get("places") or []):
+        return str(Path(wip).parent)
+    return None
+
+
+def shown_folder(path: str) -> str:
+    """Where a file is, as the preparer knows it: the client folder's name and sub-folders (not the in-memory drive)."""
+    parts = Path(path).parent.parts
+    for lead in (("/", "client", "docs"), ("/", "client", "save"), ("/", "client", "picked")):
+        if parts[:3] == lead:
+            return "/".join(parts[3:]) or parts[-1]
+    return str(Path(path).parent)
+
+
 def not_yet(token: str, on: str, title: str, why: str, lead: str = "Not in the browser app yet.") -> Reply:
     """A step tab whose page isn't in the browser app yet: says so, with the step tabs (templates/not_yet.html).
     lead = the banner's first words (blank for a plain message, e.g. a run that isn't open any more)."""

@@ -111,6 +111,30 @@ def post_file(url, body):
     return re.search(r'filename="?([^";]+)"?', resp.headers.get("Content-Disposition", "")).group(1), resp.data
 out["pages"]["k1_pages"] = scenario.normalize(scenario.k1_pages(r3, app.k1v_web, open_page, post3, get3, post_file,
                                                                 app._summaries))
+
+# step 4: Verify return on a fresh run (the work in progress, the master checklist and the review Excel in a temporary folder)
+import app as appmod
+import core.verify as verify_mod
+tmp4 = Path(tempfile.mkdtemp())
+verify_mod.MASTER = tmp4 / "checklist_master.json"
+appmod._dialog = lambda *a, **k: str(tmp4)             # "Save the review (Excel) to…": the temporary folder
+ut4 = pick("UT input screens")
+if ut4:
+    r4 = h.run_case(case, roles)
+    if r4.get("wip_path"):
+        r4["wip_path"] = str(tmp4 / Path(r4["wip_path"]).name)
+    def open4(url):
+        resp = c.get(url.format(token=r4["token"]))
+        return resp.status_code, resp.data.decode("utf-8")
+    def post4(url, body):
+        resp = c.post(url.format(token=r4["token"]), json=body)
+        assert resp.status_code == 200, (url, resp.status_code)
+        return resp.get_json()
+    def save4():
+        saved = Path(post4("/verify/{token}/save", {})["saved"])
+        return saved.name, saved.read_bytes()
+    out["pages"]["verify"] = scenario.normalize(scenario.verify_page(r4, ut4, open4, post4, save4, wip_mod.snapshot,
+                                                                     verify_mod.master_load))
 Path(sys.argv[3]).write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
 """
 

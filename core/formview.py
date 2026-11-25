@@ -213,6 +213,18 @@ def _o(k, box, label, **kw):
 
 DOC_HEAD = dict(doc=True)          # no person / payer names read: the column header = the issuer (or the file name)
 
+# Form 8949 boxes (the heading of each box group on the 1099 tabs): A-C short-term / D-F long-term from a 1099-B, G-L from a
+# 1099-DA; X = the term isn't known (the program counts it as short-term)
+BOX_NAMES = {
+    "A": "basis reported to the IRS", "B": "basis not reported to the IRS", "C": "Form 1099-B not received",
+    "D": "basis reported to the IRS", "E": "basis not reported to the IRS", "F": "Form 1099-B not received",
+    "G": "1099-DA, basis reported to the IRS", "H": "1099-DA, basis not reported to the IRS", "I": "Form 1099-DA not received",
+    "J": "1099-DA, basis reported to the IRS", "K": "1099-DA, basis not reported to the IRS", "L": "Form 1099-DA not received",
+    "X": "term not known (counted as short-term)",
+}
+B_LABELS = {"proceeds": "Proceeds", "cost": "Cost or other basis", "md": "Accrued market discount",
+            "wash": "Wash sale loss disallowed", "gain": "Gain or (loss)"}
+
 DEFS.update({
     "1099r": dict(label="1099-R", sections=[dict(title="1099-R", head=False, rows=[
         _m("b1", "1", "Gross distribution"), _m("b2a", "2a", "Taxable amount"),
@@ -275,12 +287,13 @@ DEFS.update({
             _o("nec_1b", "1b", "Cash tips"), _o("nec_1d", "1d", "Overtime compensation"),
             _o("nec_3", "3", "Excess golden parachute payments"), _o("nec_5", "5", "State tax withheld"),
             _o("nec_7", "7", "State income")]),
-        # a term's five rows show together (grp); its gain is the sum of its Form 8949 box rows when it has them (sumof)
+        # a term's five rows show together (grp); with Form 8949 box groups each is the sum of its boxes (sumof, not typed)
         dict(title="1099-B totals", opt=True, rows=[
-            _o(f"b:{t}:{f}", tb, f"{tl} — {fl}", grp=t, **({"sumof": f"b8949:{t}:"} if f == "gain" else {}))
+            _o(f"b:{t}:{f}", tb, f"{tl} — {fl}", grp=t, sumof=[f"b8949:{t}:", f])
             for t, tb, tl in (("st", "ST", "Short-term"), ("lt", "LT", "Long-term"), ("und", "?", "Term unknown"))
             for f, fl in (("proceeds", "Proceeds"), ("cost", "Cost or other basis"), ("md", "Accrued market discount"),
                           ("wash", "Wash sale loss disallowed"), ("gain", "Gain or (loss)"))]),
+        # one group per Form 8949 box found (b8949:<term>:<box>:<number>), headed with the box's name (BOX_NAMES)
         dict(title="1099-B by Form 8949 box", opt=True, dyn="b8949:", t="money", kind="b8949", hide_none=True),
         dict(title="§1256 contracts (Form 6781)", opt=True, rows=[
             _m("s1256_11", "11", "Aggregate profit or (loss) on contracts")]),
@@ -352,9 +365,15 @@ B_FIELDS = ("proceeds", "cost", "md", "wash", "gain")
 FORM_KEY = re.compile(r"^(int|div|misc|oid|nec|s1256)_\w+$")
 
 
+def _five(row) -> dict:
+    """A Form 8949 box row (box, gain, proceeds, five) -> its five numbers (an older row without them: gain and proceeds)."""
+    return dict(row[3]) if len(row) > 3 else dict(proceeds=row[2], cost=0, md=0, wash=0, gain=row[1])
+
+
 def _stmt_rows(p: dict) -> dict:
     """A brokerage statement's result (parse_1099 / parse_box_rows / parse_box_list) -> row keys: the form boxes (int_1,
-    div_1a ...), the withholding (fit), the 1099-B totals by term (b:st:gain ...) and the Form 8949 box rows (b8949:st:A)."""
+    div_1a ...), the withholding (fit), the 1099-B totals by term (b:st:gain ...) and each Form 8949 box's five numbers
+    (b8949:st:A:proceeds ... b8949:st:A:gain)."""
     det = p.get("detail") or {}
     out = {k: v for k, v in det.items() if FORM_KEY.match(k)}
     out["fit"] = p.get("fit") or 0
@@ -362,31 +381,38 @@ def _stmt_rows(p: dict) -> dict:
         for fld, v in (det.get("b_" + t) or {}).items():
             out[f"b:{t}:{fld}"] = v
     for t, rows in ((p.get("redo_inputs") or {}).get("boxes") or {}).items():
-        for bx, g, _ in rows:
-            out[f"b8949:{t}:{bx}"] = g
+        for row in rows:
+            for fld, v in _five(row).items():
+                out[f"b8949:{t}:{row[0]}:{fld}"] = v
     return out
 
 
 def _stmt_redo(d: dict, effs: list) -> dict:
-    """The statement worked out again from its corrected column (parsers.statement_again). A term's gain = the sum of its
-    Form 8949 box rows when it has them (the box rows are what the preparer corrects), so the rows always add up."""
+    """The statement worked out again from its corrected column (parsers.statement_again). A term with Form 8949 box rows:
+    the preparer corrects the boxes and the term's five totals become the boxes' sums (Lady, 2026-11-23), so the boxes always
+    add up; a term whose boxes weren't changed keeps its printed totals."""
     from core.parsers import statement_again
     p = d["parsed"]
     eff = effs[0]
     if eff is None:
         return p
+    read = _stmt_rows(p)
     f = {k: v for k, v in eff.items() if FORM_KEY.match(k) and v is not None}
     old_boxes = (p.get("redo_inputs") or {}).get("boxes") or {}
     boxes, b = {}, {}
     for t in TERMS:
-        rows = [(bx, eff.get(f"b8949:{t}:{bx}") or 0, pr) for bx, _, pr in old_boxes.get(t) or []]
+        rows, changed = [], False
+        for row in old_boxes.get(t) or []:
+            five = {fld: eff.get(f"b8949:{t}:{row[0]}:{fld}") or 0 for fld in B_FIELDS}
+            changed |= any(five[fld] != (read.get(f"b8949:{t}:{row[0]}:{fld}") or 0) for fld in B_FIELDS)
+            rows.append((row[0], five["gain"], five["proceeds"], five))
         if rows:
             boxes[t] = rows
         vals = {fld: eff.get(f"b:{t}:{fld}") for fld in B_FIELDS}
         if any(v is not None for v in vals.values()):
             r = {fld: v or 0 for fld, v in vals.items()}
-            if rows:
-                r["gain"] = round(sum(g for _, g, _ in rows), 2)
+            if rows and changed:                      # the term's totals = its boxes' sums
+                r = {fld: round(sum(x[3][fld] for x in rows), 2) for fld in B_FIELDS}
             b[t] = r
     return statement_again(p, f, b, eff.get("fit") or 0, boxes or None)
 
@@ -533,20 +559,31 @@ def effective_docs(r: dict) -> list:
 
 
 # ---------------------------------------------------------------- page data (the Form view section of the summary page)
-PER_TAB = 6                                     # forms per tab: W2 = 1-6, W2_2 = 7-12 ... (always 6 columns + Total)
-# the Document inventory's tabs after "Summary": W2 first, then these always (alphabetical; "(n)" = forms of that type)
-TABS = [("1098", "1098-M"), ("1098t", "1098-T"), ("1099b", "1099-B"), ("composite", "1099-Comp"), ("1099da", "1099-DA"),
-        ("1099div", "1099-DIV"), ("1099g", "1099-G"), ("1099int", "1099-INT"), ("1099nec", "1099-NEC"), ("1099r", "1099-R")]
-# ... and these only when the client has one (they take their place in the alphabetical order)
-TABS_IF = [("1099k", "1099-K"), ("1099misc", "1099-MISC"), ("1099oid", "1099-OID"), ("1099sa", "1099-SA"), ("ssa", "SSA-1099"),
-           ("1098e", "1098-E"), ("1095a", "1095-A"), ("5498", "5498")]
+PER_TAB = 8                                     # forms per tab: W2 = 1-8, W2_2 = 9-16 ... (always 8 columns + Total; Lady, 2026-11-23)
+# the Document inventory's form tabs after "Summary": W2 first, then the rest in alphabetical order. A tab shows only when the
+# client has at least one document of that type (Lady, 2026-11-24 - before, W2 and ten types always showed, empty or not)
+TABS = [("w2", "W2"), ("1095a", "1095-A"), ("1098", "1098-M"), ("1098e", "1098-E"), ("1098t", "1098-T"), ("1099b", "1099-B"),
+        ("composite", "1099-Comp"), ("1099da", "1099-DA"), ("1099div", "1099-DIV"), ("1099g", "1099-G"), ("1099int", "1099-INT"),
+        ("1099k", "1099-K"), ("1099misc", "1099-MISC"), ("1099nec", "1099-NEC"), ("1099oid", "1099-OID"), ("1099r", "1099-R"),
+        ("1099sa", "1099-SA"), ("5498", "5498"), ("ssa", "SSA-1099")]
 # 1099-G, 1099-K, 5498: the program has no reader for them - their tabs list the documents (open the document) only
+
+
+def _col_ssn(d: dict, f: dict, names: dict) -> list:
+    """The SSN line of a column: the document's SSNs (last 4, core/ssn.py) with the taxpayer's / spouse's name. A W-2 whose
+    own box a is one of them shows just that one (two employees' W-2s in one file)."""
+    from core.ssn import shown
+    found = d.get("ssn4") or []
+    own = re.sub(r"\D", "", str(f.get("ssn") or ""))[-4:] if d.get("family") == "w2" else ""
+    return [shown(x, names) for x in ([own] if own and own in found else found)]
 
 
 def columns(r: dict, order: list, form: str = "w2") -> list:
     """Every form of that type the program read, one column each, in the inventory's order: {id, form, defn, path, file, num,
-    issuer, of, parsed}. The header (person · payer, or the issuer) is made on the page, so a correction there shows at once."""
+    issuer, of, page, ssn, parsed}. The header (person · payer, or the issuer) is made on the page, so a correction there
+    shows at once. page = where the document's (first) form is, for the column's document link; ssn = the SSN / Name line."""
     rank = {p: i for i, p in enumerate(order)}
+    names = r.get("ssn_names") or {}
     cols = []
     for d in sorted(r["inv"]["docs"], key=lambda d: rank.get(d.get("did"), len(rank))):
         if d.get("family") != form:
@@ -557,7 +594,7 @@ def columns(r: dict, order: list, form: str = "w2") -> list:
         for i, f in enumerate(forms):
             cols.append(dict(id=f'{d["did"]}#{i}', form=form, defn=FAMILIES[form]["defn"], path=d["path"], file=d["file"],
                              num="#" + n + (chr(97 + i) if len(forms) > 1 else ""), issuer=d.get("issuer") or "",
-                             of=len(forms), parsed=f))
+                             of=len(forms), page=(d.get("parsed") or {}).get("page"), ssn=_col_ssn(d, f, names), parsed=f))
     return cols
 
 
@@ -578,8 +615,9 @@ def _why_no_column(d: dict) -> str:
 
 
 def tabs(r: dict, cols: list) -> list:
-    """The Document inventory's form tabs (after "Summary"): W2 first, then the form types in alphabetical order. A form type
-    with a reader gets 6 forms per tab (W2, W2_2 ... / 1099-R, 1099-R_2 ...); n = how many forms (documents for a type the
+    """The Document inventory's form tabs (after "Summary"): W2 first, then the form types in alphabetical order - only the
+    types the client has a document of (skipped files don't count; excluded ones do: their tab lists them). A form type
+    with a reader gets 8 forms per tab (W2, W2_2 ... / 1099-R, 1099-R_2 ...); n = how many forms (documents for a type the
     program can't read); others = the documents of that type with no column (not read, excluded), listed under the table."""
     docs = [d for d in r["inv"]["docs"] if d.get("route") != "skipped"]
 
@@ -598,9 +636,11 @@ def tabs(r: dict, cols: list) -> list:
                             defn=FAMILIES[form]["defn"], cols=[c["id"] for c in fc[k:k + PER_TAB]], n=len(fc[k:k + PER_TAB]),
                             others=oth if j == 0 else []))
         return out
-    out = chunks("w2", "W2")
-    rest = TABS + [t for t in TABS_IF if any(d.get("family") == t[0] for d in docs)]
-    for fam, label in sorted(rest, key=lambda t: t[1].lower()):
+    have = {d.get("family") for d in docs}
+    shown = [t for t in TABS if t[0] in have]      # only the types the client has a document of
+    w2_first = [t for t in shown if t[0] == "w2"] + sorted([t for t in shown if t[0] != "w2"], key=lambda t: t[1].lower())
+    out = []
+    for fam, label in w2_first:
         if fam in FAMILIES:
             out += chunks(fam, label)
         else:

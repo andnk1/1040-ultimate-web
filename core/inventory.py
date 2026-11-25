@@ -16,6 +16,7 @@ from collections import Counter
 from pathlib import Path
 
 from .pdfutil import open_pdf, page_text, has_text
+from .ssn import last4s
 from .readcache import fingerprint, remember
 
 PDF_EXT = {".pdf"}
@@ -317,6 +318,9 @@ def _what_it_is(p: Path, d: dict, py_year, extra_passwords) -> dict:
             d["pages"], d["password"] = n, bool(pw)
             texts = [page_text(doc, i) for i in range(min(n, CLASSIFY_PAGES))]
             text = "\n".join(texts)
+            # the recipient's SSN (last 4) on the first 3 pages - used for a document whose reader keeps no form pages
+            # (core/runcheck.py read_ssns); this text is read here anyway, so it costs no extra reading
+            d["ssn4_first"] = last4s(texts[:3])
             d["tfp"] = text_fp(text)
             txt_pages = sum(has_text(t) for t in texts)
             d["text"] = "yes" if txt_pages == len(texts) else ("partial" if txt_pages else "no")

@@ -124,22 +124,51 @@ def test_statement_correction_equals_reader(tmp_path):
 
 
 # ---------------------------------------------------------------- 2. made-up parsed results
-def test_composite_8949_box_rows_add_up():
-    """A composite with Form 8949 box rows: correcting box A changes the ST row (A) and the ST total = the box rows; DIV 2a
-    still goes to LT; §1256 still splits 60 / 40."""
+def _five(proceeds, cost, gain, md=0.0, wash=0.0):
+    return dict(proceeds=proceeds, cost=cost, md=md, wash=wash, gain=gain)
+
+
+def _composite(b, boxes):
     f = dict(div_1a=500.0, div_2a=40.0, s1256_11=100.0)
-    b = dict(st=dict(proceeds=1000.0, cost=800.0, md=0, wash=0, gain=200.0), lt=dict(proceeds=0, cost=0, md=0, wash=0, gain=0.0))
-    boxes = {"st": [("A", 150.0, 600.0), ("B", 50.0, 400.0)]}
     p = P._amounts_1099(f, b, "", {}, boxes)
     p.update(fit=0.0, reader="1099_statement", redo_inputs=dict(missing={}, boxes=boxes))
+    return p
+
+
+def test_composite_8949_box_groups():
+    """A composite with Form 8949 boxes A and B: each box keeps its five numbers on the tab. Correcting box A: the ST row (A)
+    follows, the ST totals become the boxes' sums (all five), DIV 2a still goes to LT, §1256 still splits 60 / 40."""
+    b = dict(st=_five(1000.0, 800.0, 200.0), lt=_five(0, 0, 0.0))
+    boxes = {"st": [("A", 150.0, 600.0, _five(600.0, 450.0, 150.0)), ("B", 50.0, 400.0, _five(400.0, 350.0, 50.0))]}
+    p = _composite(b, boxes)
+    assert not any("don't add up" in n for n in p["notes"])
     col = fv.doc_columns(_doc("composite", p))[0]
-    assert col["b8949:st:A"] == 150.0 and col["b:st:gain"] == 200.0
-    q = _corrected("composite", p, {0: dict(col, **{"b8949:st:A": 175.0})})
+    assert col["b8949:st:A:gain"] == 150.0 and col["b8949:st:A:cost"] == 450.0 and col["b:st:gain"] == 200.0
+    q = _corrected("composite", p, {0: dict(col, **{"b8949:st:A:proceeds": 625.0, "b8949:st:A:gain": 175.0})})
     assert dict(q["parts"]["st"])["(A)"] == 175.0
     assert q["amounts"]["st"] == pytest.approx(225.0 + 40.0)          # 175 + 50 + 40% of 100
     assert q["amounts"]["lt"] == pytest.approx(40.0 + 60.0)           # DIV 2a + 60% of 100
-    assert q["detail"]["b_st"]["gain"] == 225.0
+    assert q["detail"]["b_st"] == _five(1025.0, 800.0, 225.0)          # the term's five totals = the boxes' sums
     _same(_corrected("composite", p, {0: col}), p)                     # unchanged column = the first read
+    # a correction elsewhere (DIV 1a) leaves the printed term totals alone
+    assert _corrected("composite", p, {0: dict(col, div_1a=600.0)})["detail"]["b_st"] == b["st"]
+
+
+def test_box_groups_not_adding_up_get_a_note():
+    """Boxes whose numbers don't add up to the term totals (here the cost): a note in the document's comment."""
+    b = dict(st=_five(1000.0, 800.0, 200.0))
+    boxes = {"st": [("A", 150.0, 600.0, _five(600.0, 400.0, 150.0)), ("B", 50.0, 400.0, _five(400.0, 350.0, 50.0))]}
+    p = _composite(b, boxes)
+    note = next(n for n in p["notes"] if "don't add up" in n)
+    assert note == "1099-B Short-term: the Form 8949 box lines don't add up to the term totals (cost 750.00 vs 800.00) — check"
+    assert "wash sale" not in note                                    # (the summary leaves notes naming a wash sale out)
+
+
+def test_box_rows_keep_five_numbers(tmp_path):
+    """_box_rows keeps all five numbers of each Form 8949 summary row (National / Fidelity layout)."""
+    page = [(60, 100, "Short-term transactions for which basis is reported to the IRS"), (60, 112, "1,000.00 800.00 0.00 5.00 205.00")]
+    rows = P._box_rows(P._texts(_pdf(tmp_path / "b.pdf", [page]), None, None)[0])
+    assert rows == [("A", 1000.0, 205.0, _five(1000.0, 800.0, 205.0, wash=5.0))]
 
 
 def test_1095a_and_1099sa_made_up():
@@ -160,6 +189,7 @@ def test_list_tabs_and_others():
                   parsed=dict(status="none", amounts={}, checks=["1099-R amounts not found"]))
     r = dict(inv=dict(docs=[g, r_none]))
     tabs = {t["key"]: t for t in fv.tabs(r, [])}
+    assert list(tabs) == ["1099g", "1099r"]      # only the client's types - no empty W2 / 1099-B ... tabs (Lady, 2026-11-24)
     assert tabs["1099g"]["defn"] is None and tabs["1099g"]["n"] == 1 and "no reader" in tabs["1099g"]["others"][0]["why"]
     assert tabs["1099r"]["cols"] == [] and tabs["1099r"]["others"][0]["why"].startswith("Not read by the program")
 
@@ -203,6 +233,12 @@ def test_sample_tabs(run):
     assert tabs["composite"]["n"] == 5 and tabs["composite"]["defn"] == "1099"
     assert tabs["1099r"]["n"] == 1 and tabs["1099sa"]["n"] == 1
     assert not any(t.get("soon") for t in fvd["tabs"])
+    # a tab only for a type the client has a document of; W2 first, then alphabetical
+    have = {d.get("family") for d in run["inv"]["docs"] if d.get("route") != "skipped"}
+    assert {t["form"] for t in fvd["tabs"]} == have & {f for f, _ in fv.TABS}
+    assert fvd["tabs"][0]["form"] == "w2"
+    labels = [t["label"] for t in fvd["tabs"][1:] if "_" not in t["label"]]
+    assert labels == sorted(labels, key=str.lower)
 
 
 def test_sample_correction_reaches_the_summary(run):
@@ -220,3 +256,50 @@ def test_sample_correction_reaches_the_summary(run):
     inc, _ = runcheck.summaries(run)
     row = next(x for s in inc["sections"] if s["key"] == "dividends" for x in s["rows"] if x.get("file") == d["file"])
     assert row["doc_cy"] == pytest.approx(old)
+
+
+# ---------------------------------------------------------------- the recipient's SSN (core/ssn.py)
+def test_ssn_search():
+    from core import ssn
+    text = ("Recipient TIN XXX-XX-1234  Payer EIN 12-3456789  spouse ***-**-5678  again 123 - 45 - 1234  "
+            "full 987-65-4321  account 1123-45-6789-01  phone 555-123-4567")
+    assert ssn.last4s([text]) == ["1234", "5678", "4321"]             # in the order found, each once; no EIN / phone
+    assert ssn.shown("1234") == "***-**-1234"
+    names = ssn.names_from_return([dict(role="Taxpayer", ssn="111-22-1234", first="JANE", last="DOE"),
+                                   dict(role="Spouse", ssn="111-22-5678", first="John", last="Doe"),
+                                   dict(role="Dependent 1", ssn="111-22-9999", first="Kid", last="Doe")])
+    assert names == {"1234": "Jane Doe", "5678": "John Doe"}           # taxpayer / spouse only
+    assert ssn.shown("5678", names) == "***-**-5678 · John Doe"
+
+
+def test_ssn_on_documents_and_columns(tmp_path):
+    """Run check's shared search: each document's SSNs; a W-2 with none printed in the text keeps its box a last 4; the form
+    tab columns carry the SSN line and the page."""
+    from core import runcheck
+    pdf = _pdf(tmp_path / "r.pdf", [_r("1,000.00", "1,000.00", "7")[0] + [(300, 40, "RECIPIENT'S TIN ***-**-4321")]])
+    d = _doc("1099r", P.parse_1099r(pdf))
+    d["path"] = str(pdf)
+    w2 = dict(family="w2", did="w", route="program", file="w.pdf", path=str(tmp_path / "w.txt"),
+              parsed=dict(status="read", detail=dict(boxes=[{"1": 10.0, "ssn": "XXX-XX-2222"}])))
+    inv = dict(docs=[d, w2])
+    runcheck.read_ssns(inv)
+    assert d["ssn4"] == ["4321"] and w2["ssn4"] == ["2222"]
+    r = dict(inv=inv, ssn_names={"4321": "Jane Doe"})
+    col = fv.columns(r, ["d1"], "1099r")[0]
+    assert col["ssn"] == ["***-**-4321 · Jane Doe"] and col["page"] == 1
+    assert fv.PER_TAB == 8
+
+
+def test_ssn_only_on_form_pages(tmp_path):
+    """The SSN is looked for only on the pages the reader took its amounts from: an SSN on another page (here page 2, no
+    1099-R on it) is left out. A document with no reader: the first 3 pages the document scan read (ssn4_first)."""
+    from core import runcheck
+    pages = [_r("1,000.00", "1,000.00", "7")[0] + [(300, 40, "RECIPIENT'S TIN XXX-XX-4321")],
+             [(60, 100, "Instructions for Recipient   example 123-45-9999")]]
+    p = P.parse_1099r(_pdf(tmp_path / "r.pdf", pages))
+    assert p["ssn4"] == ["4321"]
+    other = dict(family="other", did="o", route="context", file="o.pdf", path="/x/o.pdf", parsed=None, ssn4_first=["7777"])
+    k1 = dict(family="k1p", did="k", route="k1v", file="k.pdf", path="/x/k.pdf", ssn4_first=[])
+    inv = dict(docs=[_doc("1099r", p), other, k1])
+    runcheck.read_ssns(inv)
+    assert [d["ssn4"] for d in inv["docs"]] == [["4321"], ["7777"], []]

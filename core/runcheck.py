@@ -27,6 +27,7 @@ from pathlib import Path
 from . import docid
 from .readcache import remember                          # each file is read once while the app is open (core/readcache.py)
 from . import formview as fv_mod
+from . import ssn as ssn_mod
 from . import wip as wip_mod
 from .carryovers import read_carryovers
 from .clientsum import read_client_summary
@@ -262,6 +263,7 @@ def read(form: dict, docs_on: list, *, work_dir, doc_list=None, mode: str = "sum
             clientsum = dict(file=Path(form["clientsum"]).name, items=[], error=str(e))
     step("reading the amounts on each document")
     read_amounts(inv, step)
+    read_ssns(inv)
     match_expected(py["expected"], inv["docs"])
     schc = [dict(name=b["name"], py=b["lines"], cy={}) for b in schc_py]
     sche = [dict(name=p["name"], py=p["lines"], cy={}, info=dict(type=p.get("type", ""), fair_days=p.get("fair_days"),
@@ -271,6 +273,7 @@ def read(form: dict, docs_on: list, *, work_dir, doc_list=None, mode: str = "sum
              cy_year=(py.get("year") or 0) + 1 if py.get("year") else None, moved=moved,
              stuck=[f"{Path(p).name} — the PDF reader got stuck on it, left out; open it in Acrobat and save a copy, then add the copy"
                     for p in stuck_docs])
+    r["ssn_names"] = ssn_names(form)
     if k1v_token:
         r["k1v_token"] = k1v_token
     if k1v_problems:
@@ -360,6 +363,39 @@ def looks_like_1040(path) -> bool:
     except Exception:  # noqa: BLE001
         return False
     return n >= 2 and "1040" in txt and bool(re.search(r"Individual Income Tax Return|Two Year Comparison|Form 1040 \(20\d\d\)", txt))
+
+
+def read_ssns(inv: dict) -> None:
+    """The recipient's SSN (last 4) on every document (core/ssn.py), from text already read - no page is read again:
+    - a W-2: its own box a (the W-2 reader);
+    - a document whose reader keeps its form pages (the pages it took its amounts from): the SSNs on those pages only;
+    - any other document (no reader, K-1, Koinly, list layouts ...): the first 3 pages, from the document scan's text.
+    Nothing found: [] ("SSN not read")."""
+    for d in inv["docs"]:
+        if d.get("route") == "skipped" or d.get("family") == "pyreturn":
+            continue
+        p = d.get("parsed") if isinstance(d.get("parsed"), dict) else {}
+        if d.get("family") == "w2":
+            found = []
+            for f in (p.get("detail") or {}).get("boxes") or []:
+                digits = re.sub(r"\D", "", f.get("ssn") or "")
+                if len(digits) >= 4 and digits[-4:] not in found:
+                    found.append(digits[-4:])
+        elif "ssn4" in p:
+            found = list(p["ssn4"])
+        else:
+            found = list(d.get("ssn4_first") or [])
+        d["ssn4"] = found
+
+
+def ssn_names(form: dict) -> dict:
+    """{last 4: name} of the taxpayer / spouse on the prior-year return (none without one) - shown next to a document's SSN."""
+    if not form.get("pyret"):
+        return {}
+    try:
+        return ssn_mod.names_from_return(remember("people", form["pyret"], lambda: read_people(form["pyret"])))
+    except Exception:  # noqa: BLE001 - names not read: the SSN alone is shown
+        return {}
 
 
 def read_amounts(inv: dict, step=_quiet) -> None:
@@ -459,7 +495,8 @@ def inventory_rows(r) -> list:
             parts = [f for f, ks in (("INT", ("interest",)), ("DIV", ("dividends",)), ("B", ("st", "lt")), ("MISC", ("other", "rental")))
                      if any(amts.get(k) for k in ks)]
             typ += " (" + ", ".join(parts) + ")" if parts else ""
-        rows.append(dict(key=d["did"], file=d["file"], path=d["path"], issuer=d.get("issuer") or "", type=typ, year=d.get("year") or "",
+        ssn = [ssn_mod.shown(x, r.get("ssn_names")) for x in d.get("ssn4") or []]     # the recipient's SSN, last 4 (core/ssn.py)
+        rows.append(dict(key=d["did"], file=d["file"], path=d["path"], issuer=d.get("issuer") or "", ssn=ssn, type=typ, year=d.get("year") or "",
                          year_flag=d.get("year_flag"), read=d.get("read") or "none", is_read=read, password=d.get("password"),
                          feeds=("Karbon Summary" if d["family"] == "karbon" else
                                 "comments only" if isinstance(d.get("parsed"), dict) and d["parsed"].get("memo_only") else feeds_label(d)) if read else "",
@@ -470,7 +507,7 @@ def inventory_rows(r) -> list:
     rows.sort(key=lambda x: _natural(x["file"]))                   # by file name: numbers in order (2 before 10), then A-Z
     for f in st["free"]:
         rows.append(dict(key=f["id"], file=f.get("name", ""), issuer=f.get("issuer", ""), type="", year="", read="", is_read=False,
-                         feeds="", cy=f.get("cy"), sec=f.get("sec", ""), note=f.get("note", ""),
+                         feeds="", cy=f.get("cy"), sec=f.get("sec", ""), note=f.get("note", ""), ssn=[],
                          verified=bool(f.get("verified")), ai=False, free=True))
     return rows
 
@@ -531,7 +568,7 @@ def form_view_data(r, inc, invrows, ded=None) -> dict:
     fvs = r.get("formview") or {}
     return dict(tabs=fv_mod.tabs(r, cols), defs=fv_mod.DEFS, cols=cols, edits={f: fvs.get(f) or {} for f in fv_mod.FAMILIES},
                 typed=typed, codes=fv_mod.W2_12, year=cy_year, base=fv_mod.WAGE_BASE.get(cy_year), rate=fv_mod.SS_RATE,
-                per=fv_mod.PER_TAB)
+                per=fv_mod.PER_TAB, boxnames=fv_mod.BOX_NAMES, blabels=fv_mod.B_LABELS)
 
 
 # ---------------------------------------------------------------- income / deduction summary

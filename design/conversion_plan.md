@@ -12,7 +12,7 @@ A page is done when it gives the same results as the archive on the sample clien
 |---|---|---|
 | 0 · Choose the files | `templates\home.html` + `/run`, Windows file windows | **Built** (`web\index.html`): same fields, Work in progress + Continue / Start fresh |
 | 1 · Summary | `summary.html` + 24 save / download addresses | **Built** (steps 2-3): every save and download |
-| 2 · Verify return | `verify.html` + 4 addresses | not yet |
+| 2 · Verify return | `verify.html` + 4 addresses | **Built** (step 4, part 1 - 2026-11-24): the page as the archive's; the K-1 section next |
 | 3 · AI Doc Review | `ai_requests.html` + 4 addresses, API key in `.env` | not yet — waits for the key decision |
 | 4 · AI Return Review, 5 · AI Advisory | placeholder pages | **Built** (step A) — same pages |
 | 6 · K-1s (was K-1 Verification) | `k1v\home.html` (new browser tab) | **Built** (step 5); since 2026-11-21 its own tab, driven by the app tab |
@@ -87,8 +87,8 @@ summary ticks; (h) Income and Deduction Summary (Excel); (i) K-1 box Remove.
   runs in the worker with the stuck-PDF guard; the result, ticks and comments are saved with the work in progress.
 - **Loses:** the master checklist file `checklist_master.json` kept in the app folder (one per computer); *Save review
   (Excel)…* into a folder chosen in a Windows window (default: the prior-year return's folder).
-- **Replaced by:** the master checklist in a file Lady picks once (question 2); the review Excel written into the client folder
-  (or downloaded).
+- **Replaced by:** the master checklist in a file on the shared drive, picked once (question 2: (a), Lady 2026-11-24); the review
+  Excel written into the client folder (or downloaded).
 - **Proven by:** the "UT check" sheet (already in the answer keys) and the return-based checks on the same files; the review
   Excel compared cell by cell. The Sample case has the UT print; a sample with a finished 2025 return is needed for the checks
   *without* the input screens (question 4).
@@ -157,7 +157,8 @@ summary ticks; (h) Income and Deduction Summary (Excel); (i) K-1 box Remove.
 2. **0 + 1a–1b** — work in progress (load / save), the Summary's corrections, ticks, comments, inventory.
    **Built 2026-11-17** — the saved work and the summaries = the archive after the same edits, and after reopening.
 3. **1c–1i** — form tabs, UT summary, Schedule C / E, Excel, K-1 Remove. **Built 2026-11-17** — the whole Summary works.
-4. **2** — Verify return.
+4. **2** — Verify return. **Part 1 built 2026-11-24** (the plain conversion) — the page = the archive on Sample (BUILD_NOTES.md);
+   part 2: the K-1 section.
 5. **6 → 7 → 8** — the K-1 pages. **Built 2026-11-18** (before step 4, Lady) — details in BUILD_NOTES.md.
 6. **3** — AI Doc Review, after the key decision.
 
@@ -172,6 +173,11 @@ summary ticks; (h) Income and Deduction Summary (Excel); (i) K-1 box Remove.
   - the stand-alone K-1 reader is dropped;
   - the K-1 entry check moves to Verify return;
   - the K-1 pages are renamed (K-1s / K-1 Verification) and split by form.
+- 2026-11-24 — a document the program read (and a K-1 line) can't be corrected on the Income and Deduction Summary any more:
+  it is corrected on its own screen (form tab / K-1 UT); a correction saved before still counts. The archive check's test
+  correction (`tools\parity\scenario.py` `edits`) moved to a line still typed there (a crypto report's row, a Schedule C / E
+  box result or a not-read row), and the archive reference was made again with it.
+- 2026-11-24 — the Document inventory shows only the form tabs the client has (the archive check doesn't compare tabs).
 - 2026-11-17 — each summary row carries the page its amount was read on (`src_path` / `src_page`, the name's link) — new,
   the archive has no such field: the check leaves those two fields out (`tools\parity\scenario.py` `normalize`).
 
@@ -192,6 +198,7 @@ summary ticks; (h) Income and Deduction Summary (Excel); (i) K-1 box Remove.
    (Drive Picker) for exact links — needs a Google Cloud project and an approval screen. *Recommend (a).*
 2. **The master checklist.** (a) A file on the shared drive, picked once (one list for the whole office; Chrome asks for access
    again each session). (b) Kept in each browser (one list per computer; export / import to share). *Recommend (a).*
+   *Answered: (a) (Lady, 2026-11-24).*
 3. **K-1 pages** inside the app with *← Back* (recommended), or in a new tab (needs the two tabs to talk to each other — more
    code, no gain I can see). *Answered: inside the app (2026-11-18); then their own tab, driven by the app tab (Lady,
    2026-11-21).*

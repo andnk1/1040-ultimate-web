@@ -3,7 +3,7 @@
 Hand-off for a new Claude session: the working rules, what's decided but not built, the open questions and the pending list.
 Finished, settled work is in **BUILD_HISTORY.md** (moved there unchanged, in date order — the "history:" names below are its
 section titles — written for the desktop app: its rules stay, its desktop details don't); a screen with a spec is in
-`design\` (e.g. `design\k1_prep.md`). Last updated 2026-11-23.
+`design\` (e.g. `design\k1_prep.md`). Last updated 2026-11-24.
 
 ## One version only — the browser app (Lady, 2026-11-17)
 - The desktop app (local Python / Flask server) is **retired**. All work happens on the browser app only: this folder,
@@ -71,7 +71,8 @@ section titles — written for the desktop app: its rules stay, its desktop deta
 ## Settled rules a change must keep (details in the history)
 - Nothing is decided by the file name, except K-1 and Karbon — history: "File names decide nothing" (2026-11-01).
 - Per document = what came in, from every source; corrected amount = the preparer's override and wins; a changed per
-  document flags the correction — history: "Per document = every source" (2026-11-03).
+  document flags the correction — history: "Per document = every source" (2026-11-03). **Since 2026-11-24 a document the
+  program read (and a K-1 line) is corrected only on its own screen** (form tab / K-1 UT), not on the Summary (status).
 - Saved work is keyed by the file's fingerprint, never its name — history: "Saved work keyed by the file's fingerprint" (2026-11-03).
 - K-1 amounts reach the income summary only through "Add to Income Summary" — history: "K-1s: one route" (2026-11-04).
 - Look: `design\DESIGN_RULES.md` (changed = light pink / blue, verified = light mint, red only for warnings) — history:
@@ -308,6 +309,129 @@ section titles — written for the desktop app: its rules stay, its desktop deta
     summary shows it.
   - **Built, not tried on a real document** (no sample has them): 1098-T, 1098-E, SSA-1099, 1095-A, stand-alone 1099-INT /
     DIV / B / OID / DA, 1099-MISC, 1099-NEC (made-up forms only). On real documents: 1099-R, 1099-SA, the composites.
+- **2026-11-23 — 1099-B box groups, 8 columns, SSN, document link** (Lady: "Go"; asked first, her answers below):
+  - **Form 8949 boxes keep all five numbers** (proceeds, cost, market discount, wash sale, gain): `_box_rows` and the Interactive
+    Brokers path (`IB_BOXES`) keep them (`B_FIVE`); a box row is (box, gain, proceeds, five). The form tab shows each box found
+    as its own group headed with its name (`formview.BOX_NAMES`: "Box A — basis reported to the IRS", B not reported, C 1099-B
+    not received, D–F long-term, G–L 1099-DA, X term not known). **A term with box groups: its five totals = the boxes' sums**,
+    shown not typed (Lady); corrections go on the boxes and re-run `statement_again`; a term whose boxes weren't changed keeps
+    its printed totals. **Check** (`parsers._box_sum_notes`): each term's boxes must add up to its five printed totals (±$1);
+    if not, the note "1099-B Short-term: the Form 8949 box lines don't add up to the term totals (cost 750.00 vs 800.00) —
+    check" in the document's comment on the Income Summary (Lady: also the Summary). Summary amounts unchanged. Later feeds
+    the per-form export for UltraTax.
+  - **8 columns per tab** (+ Total), every tab (`PER_TAB = 8`); narrower description and inputs.
+  - **Recipient SSN, last 4, on every document** — one shared search (`core\ssn.py` `last4s`): `ddd-dd-dddd` / `XXX-XX-dddd` /
+    `***-**-dddd` with spaces allowed around the dashes, never an EIN; only the last 4 kept, shown `***-**-1234`, several in the
+    order found, none = "SSN not read". **Form pages only, from text already read** (Lady, same day - no page is read again for
+    it; Run check's `read_ssns`): each reader keeps the SSNs found on the pages it took its amounts from (`ssn4`: the 1099
+    form / summary pages, the box-row / box-list pages, the 1099-R / MISC / NEC / INT / 1098 / 1098-E / 1098-T / 1095-A /
+    SSA / 1099-SA form pages - the readers hand the page's words to their helpers instead of reading them twice); a W-2 keeps
+    its box a; a document whose reader keeps no form pages (no reader, K-1, Koinly, list layouts) = the first 3 pages, from
+    the text the document scan reads anyway (`inventory` `ssn4_first`). Not a PDF (Word, Excel …): "SSN not read". **Name:** the taxpayer's / spouse's last 4 on
+    the prior-year return give the name ("***-**-1234 · Jane Doe" - Lady: match now, for the name only; the check comes later).
+    Shown as a narrow **SSN** column on the Document inventory (screen only - the Excel Documents sheet is unchanged) and as the
+    **SSN / Name** line at the top of every form-tab column (a W-2 whose own box a is among them shows just that one).
+  - **Document line** under it in every column: the file name's first 16 letters + "…" (no .pdf), small grey, two lines at
+    most, full name on hover, a link opening the PDF at the document's (first) form page like the Income Summary.
+  - Tests: `tests\test_form_tabs.py` (now 18; + box groups, the add-up note, `_box_rows`' five numbers, the SSN search, the SSN on
+    documents / columns). Tried in the browser (Sample, 1400 px wide): 8 columns, the SSN / Name and Document lines, Box A /
+    Box D groups, a box A correction → the ST totals' sums and the Income Summary's ST (A) line follow.
+  - Full suite: 88 passed, the known `test_cases_found`. Both sample clients = the archive (this computer); Sample = the
+    archive in the browser (0 differences).
+  - **Speed (Sample, Run check with the prior-year return, nothing kept from before):** this computer - with the first SSN
+    search (every page read again) 40.1 s / 31.7 s (first / second run), with the form-pages search 28.0 s / 28.6 s; the
+    browser's archive check 75 s (it was 105 s before the SSN search; the 131 s measured with the first search ran beside the
+    test suite, so it was too high). Some readers now also hand the page's words to their helpers instead of reading the page
+    twice. The page-text memory in `core\pdfengine.py` is on the pending list (2026-11-23 item 2).
+  - Samples: no 1099-B box group is out of balance (no note). Names: the masked prior-year return gives no names, so the
+    samples show the SSN alone; several samples carry a third last 4 (probably left from masking).
+- **2026-11-24 — form tabs: only the client's types** (Lady): every form tab, W2 included, shows only when the client has at
+  least one document of that type (skipped files don't count, excluded ones do - their tab lists them). One list
+  (`core\formview.py` `TABS`, W2 first, then alphabetical) instead of TABS + TABS_IF. The Summary tab always shows; a document
+  added later gets its tab when the page is drawn again. The archive check doesn't compare the tab list (the archive had
+  "Form view coming soon" tabs), so no intended difference was needed. Test: `tests\test_form_tabs.py`.
+- **2026-11-24 — step 4, part 1 built: Verify return, the plain conversion** (Lady: "We move to step 4"):
+  - The archive's 4 addresses moved unchanged into `web\py\pages\verify.py` (the page, Check, the checklist, Save review);
+    `templates\verify.html` almost unchanged. Nothing new in what it checks.
+  - **Picking the files:** Browse… = the browser's file window (PDFs); the file is copied into the tab, the field shows its
+    name. Before reading, the stuck-PDF guard opens each picked PDF with the desktop's 90 s (`web\index.html` guardVerify);
+    a stuck one gets the desktop's message and is not read. The prior-year return picked again (another copy) is refused
+    as before (compared by content - each pick gets its own place in the tab).
+  - **Master checklist = a file on the shared drive** (question 2, Lady: option (a)): *Choose the master checklist file…*
+    (or *Create a new one…*) once; Chrome keeps the file's handle (IndexedDB) and finds it again next session, asking once
+    if it needs to (*Allow access*). Its text is kept at `core\verify.py` MASTER in the tab, so master_load / master_save are
+    unchanged, and each change is written back to the shared file. Without it: the built-in list, and the save says
+    "not kept for other clients". A checklist not changed yet starts again from the shared list when it is connected; one
+    already changed keeps its lines, but only the shared list's lines are master lines (found in the browser test: before,
+    a save pushed the 9 built-in lines into the office's file).
+  - **Save review (Excel):** into the work-in-progress folder when Chrome lets the app write there (a folder added with
+    Add a folder… or chosen with Choose a folder… - kept as `r["places"]`), otherwise downloaded. Same file name.
+  - **Proven against the archive** (`tools\parity\scenario.py` `verify_page`: a fresh run without the UT print, the page,
+    the UT print picked and checked, a tick + comment, the checklist with a line for this return and one for every client,
+    Save review): the check result, the saved work, the master list and the **review Excel cell by cell = python-final on
+    both sample clients** (this computer), and Sample in the browser (*Check against the archive*: every sheet and page,
+    Verify included, 0 differences). The archive reference was made again to add this page; its other parts are unchanged
+    (checked; K-1_Sample's by-hand heading now holds "(date)", which the check already left out).
+    The review's "saved <time>" heading is left out like the other clock times.
+  - **Readers changed after the archive** (1099-R / NEC / MISC / 1098-E per form, 1099-B five numbers per 8949 box): no
+    difference on those documents - the UT check sheet, the review Excel and its Documents sheet match the archive. (Sample
+    has a 1099-R; no NEC / MISC / 1098-E; no 8949 box out of balance.)
+  - Not tested: the checks without the input screens (no sample has a finished 2025 return - question 4); Chrome's real
+    file windows and its permission prompt for the shared file (the test browser can't click them; tried with the browser's
+    own storage, which has the same interface).
+  - Tried in the browser (Sample): Run check → Verify return → Browse… the UT print → Check (14 data-entry differences, 7 UT
+    entries with no document) → a tick, a checklist note → Save review → `Review 2025 - Sample.xlsx` in the client folder;
+    the remembered master file found by itself on a new run, a Stays Y line written back to it.
+  - Tests: `tests\test_verify_page.py` (4: stuck PDF, prior-year return again, folder or download, the master file). Full suite: 92 passed, the known `test_cases_found`.
+  - Next (part 2): the K-1 section, then the entry check's old page and Excel addresses go.
+- **2026-11-24 — new test case `tests\samples\1040_Complete` + Verify return fixes** (Lady):
+  - **Draft answer key** made (`tests\make_key.py 1040_Complete`), nothing ticked - Lady checks it. Roles: the 2024 return =
+    Prior-year return, the 2025 return = Current-year return, `UT_data_entry.pdf` = UT input screens, every other file a
+    Document (the `Sch E` sub-folder isn't read - a case is its top-level files). Rows: Documents 383, Summary 25, UT check 35.
+    No archive reference for it (Lady). Sample unchanged.
+  - **Role guess fixed** (`tests\harness.py` `guess_roles`): the 2024 return also passed the "looks like a UT print" test, so
+    it was only tried as a UT print (the real print won) and the 2025 return became the prior-year return. A file that loses
+    the UT pick is now still tried as a return.
+  - **Digital Assets Transactions on the UT print** (`core\utscreens.py` `_digital_assets`, Lady): the section is printed
+    misaligned - on a record's first line each value sits one column right of its header (units sold "1" under "1=S,2=L",
+    the term under "Force", the price cut off). Now its own section (before, it was read as part of "Capital Gains and Losses"
+    above it, with those columns): the gain / (loss) comes from the second line's **AMT Gain -Loss** column (its TOTAL is the
+    sum), the term from the digit under "Force" (none = short), the box from "H/K" / "I/L" by term. The units and the price
+    are never used, so the "1" entries under *UltraTax entries with no document* are gone. New case: Koinly Schedule D B/H
+    649, C/I -140, F/L 5 now tie (UT 648 / -140 / 5, boxes H / I / L), on this computer and in the browser.
+    Test: `tests\test_verify_page.py` `test_digital_assets_misaligned_print` (made-up words laid out like the print).
+  - **2 · UltraTax entries with no document:** screen, entry, what, amount and page only as wide as needed, side by side on
+    the left (a long entry wraps); the comment takes the rest of the line.
+  - Seen on the new case, not changed: Koinly Schedule 1 line 8v 225,816 vs UT Other income 21,033 ("not entered"); a K1-3
+    "Ordinary business income" line under no-document entries (the K-1 section, part 2, takes the K-1s).
+  - Full suite: 95 passed + the new digital-assets test, the known `test_cases_found`; Sample and K-1_Sample still = the
+    archive (their UT prints have no Digital Assets section).
+- **2026-11-24 — read documents are corrected on their own screen, not on the Summary** (Lady: "Go, build the lock"; her
+  rule, never written down before):
+  - **Locked on the Income and Deduction Summary:** the corrected amount and Fed. w/h of every document the program read and
+    of every K-1 line (`core\income.py` `where_to_correct` -> the row's `lock` = where to change it: "the W2 tab (Document
+    inventory)", "the 1099-Comp tab …", "K-1 UT (Open K-1 Tab)"). The boxes are read-only; a key typed or a paste in one
+    shows "Read from the document — change the amount on <screen>." (`templates\summary.html` lockWarn). The save refuses a
+    new amount too (`web\py\pages\summary.py` `_without_locked`): only the comment is taken.
+  - **Still typed on the Summary:** not-read documents, lines added with +, add-backs, the Schedule C / E box results, and
+    the crypto reports' Schedule D / Schedule 1 rows - they have no screen of their own yet, so locking them would leave
+    nowhere to correct them (when they get a form tab, `where_to_correct` locks them by itself). Inventory lines were
+    read-only on the Summary already (changed on the inventory).
+  - **Corrections saved before** (an older work in progress) **are kept** (Lady): they still count, and the row says
+    "corrected here before amounts from documents were locked — still counts; move the correction to <screen>". A new amount
+    can't replace it.
+  - **Archive check:** the scenario's test correction typed on the first document row (a W-2) is now refused, so it moved to
+    the first row still typed on the Summary (a crypto report's row, a Schedule C / E result or a not-read row) - in both
+    apps - and the archive reference was made again (its other parts unchanged, checked). Intended difference written in
+    `design\conversion_plan.md`. Side effect seen: the scenario's W-2 form-tab correction (12,345.67) now reaches the summary,
+    as it should - before, the old summary correction on the same row hid it.
+  - Tests: `tests\test_lock.py` (5: which rows lock, a new amount refused but the comment kept, a typeable row still takes
+    one, a saved correction kept and not replaceable, the locked boxes on the page). Tried in the browser (Sample): 23 locked
+    boxes; a key typed in the W-2's corrected amount -> the warning under it, the amount unchanged.
+  - The archive check leaves out the two new row fields `lock` / `kept` (new, not different - like `src_path`). K-1_Sample
+    has only K-1 lines, all locked, so its scenario no longer types a correction or a tick (Sample still covers both).
+    Full suite: 99 passed + both archive cases = the archive (re-run after the fields were left out), the known
+    `test_cases_found`. The in-browser archive check was not re-run for this change (same Python and template).
 - **Phase 1 built (2026-11-16, in the old folder):**
   - `core\pdfengine.py` is the one PDF door: nothing else in `core\` imports PyMuPDF (`pdfutil.py`, `utscreens.py`,
     `ai\docs.py`, `k1v\ut_entry.py` go through it). Its header lists what the browser stand-in (MuPDF.js) must cover.
@@ -526,6 +650,32 @@ List of 2026-11-23 (form tabs brief):
 - 1. **Per-form reading for SSA-1099, 1098-T, 1095-A** (later, Lady). Until then they read one form per file; the brief adds
   the note "This file seems to hold more than one <form> — check." Today the 1098-T takes the first value of each box from
   any page and the 1095-A the last line 33 it finds, so a file with two forms can mix them.
+- 2. **Page-text memory in `core\pdfengine.py`** (later speed-up, Lady): keep each page's text / words the first time they are
+  pulled out (by the file's fingerprint + page number, cleared at each Run check), so the document scan, the readers and the
+  SSN search never ask MuPDF for the same page twice. Results don't change; the archive check proves it.
+
+List of 2026-11-24:
+- 1. ~~Read documents can't be changed on the Summary~~ — built 2026-11-24 (see the status).
+- 2. **Reconciliation Summary (Excel)** (Lady, for her boss, 2026-11-24): one workbook, the comments included on every tab
+  except the K-1 one. Tabs:
+  - **Notes** - loosely after Lady's picture: a heading block (entity type 1040 Individual, tax year, accounting method,
+    preparer, reviewer, date), then Questions (check off when cleared; answer / notes / document links), Documents needed
+    (check off when received; notes), Prep comments & notes (reminders for prep & self-review; notes for reviewer; notes for
+    next year), Reviewer comments;
+  - **Document summary**, **Income summary**, **Client info** (Karbon + documents), **Schedule C**, **Schedule E**;
+  - **K-1 summary** - the data only, no comments.
+  On the Summary's bottom bar: the **Print Page** button goes, and **Income and Deduction Summary (Excel)** is replaced by
+  **Reconciliation Summary**. Not built - waits for "go" (questions first: where each Notes section's lines come from).
+
+- 3. **Brief `design\brief_2026-11-24_k1_documents.md` — K-1s as documents** (Lady: "step by step, stopping after each";
+  before Verify return's K-1 section, then the Reconciliation Summary). Answers to the questions asked first (Lady,
+  2026-11-24):
+  - **One file:** everything the K-1 tab and K-1 UT keep (corrections, statement lines, Verified ticks, Count / Don't
+    count, 11 ZZ, 11 S, notes, ticks, partner, UT #) goes into the client's one work in progress, like the other form tabs,
+    keyed by the file's fingerprint + page. The old K-1 work file is read once to carry its work over (step 5), then not
+    written any more.
+  - **11 S Short-term / Long-term** choice: in the K-1 tab, on each 11 S line (next to the 11 ZZ → Schedule E tick).
+  - Built so far: see the status (step by step).
 
 Decided not to build: a document-type dropdown — history: "Decided not to build" (2026-11-02).
 

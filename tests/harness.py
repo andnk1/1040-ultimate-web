@@ -70,15 +70,17 @@ def guess_roles(case: Path) -> dict:
                 if looks_like_ut_screens(str(p)):            # (a K-1 can pass this check too - the one with most entries wins)
                     ut = read_ut_screens(str(p))
                     uts.append((len(ut.get("entries") or []) + len(ut.get("rents") or []), p.name))
-                elif looks_like_1040(str(p)):
+                if looks_like_1040(str(p)):                  # (a return can pass the UT check too - see below)
                     doc, _ = open_pdf(p)
                     with doc:
                         yr = return_year(" ".join(page_text(doc, i) for i in range(min(len(doc), 3))))
                     returns.append((yr or 9999, p.name))
             except Exception:  # noqa: BLE001
                 pass
-    if uts:
-        roles[max(uts)[1]] = "UT input screens"
+    ut_name = max(uts)[1] if uts else ""
+    if ut_name:
+        roles[ut_name] = "UT input screens"
+    returns = [x for x in returns if x[1] != ut_name]      # a return that also looked like a UT print stays a return
     for i, (_, name) in enumerate(sorted(returns)):
         roles[name] = "Prior-year return" if i == 0 else "Current-year return"
     return roles
@@ -645,7 +647,44 @@ def pages_after_edits(case: Path, roles: dict, r: dict) -> dict:
     inc2, ded2 = runcheck.summaries(r2)
     out["summary_reopened"] = sc.normalize(dict(work=wip_mod.snapshot(r2), income=inc2, deductions=ded2))
     out["k1_pages"] = sc.normalize(k1_pages_after_edits(case, roles))
+    out["verify"] = sc.normalize(verify_after_edits(case, roles))
     return out
+
+
+def verify_after_edits(case: Path, roles: dict) -> dict:
+    """Step 4: Verify return (tools/parity/scenario.py verify_page) on a fresh run, through this app's pages. The work in
+    progress and the master checklist go to a temporary folder (never into the case folder or the app folder)."""
+    import core.verify as verify_mod
+    import core.wip as wip_mod
+    ut = next((str(case / n) for n, x in roles.items() if x == "UT input screens" and (case / n).is_file()), "")
+    if not ut:
+        return {}
+    tmp = Path(tempfile.mkdtemp(prefix="u1040_verify_"))
+    old_master, verify_mod.MASTER = verify_mod.MASTER, tmp / "checklist_master.json"
+    try:
+        r = open_run(run_case(case, roles))
+        if r.get("wip_path"):
+            r["wip_path"] = str(tmp / Path(r["wip_path"]).name)
+
+        def reply(method, url, body=None):
+            rep = page(method, url.format(token=r["token"]), body)
+            assert rep["status"] == 200, (url, rep["status"], str(rep["body"])[:300])
+            return rep
+
+        def save_review():
+            j = reply("POST", "/verify/{token}/save", {})["body"]
+            assert j.get("download"), j                    # no folder Chrome lets the app write in: a download
+            f = reply("GET", j["download"])
+            assert f["kind"] == "file", f
+            return f["filename"], f["body"]
+        def open_page(url):
+            rep = reply("GET", url)
+            return rep["status"], rep["body"]
+        return _scenario().verify_page(r, ut, open_page,
+                                       lambda url, body: reply("POST", url, body)["body"], save_review, wip_mod.snapshot,
+                                       verify_mod.master_load)
+    finally:
+        verify_mod.MASTER = old_master
 
 
 def k1_pages_after_edits(case: Path, roles: dict) -> dict:

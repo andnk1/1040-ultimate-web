@@ -159,6 +159,8 @@ BD_SECTIONS = [
     ("cg", r"^(Capital Gains and Losses|Sales of Capital Assets)( \(continued\))?$",
      [(r"^Sales", "proceeds"), (r"^Cost", "cost"), (r"^1=S", "term"), (r"^Adj to G/L", "adj"), (r"^Gain", "gain"),
       (r"^Fed W/H", "fit")]),
+    # Digital Assets Transactions (Form 8949 boxes G-L): read by its own code (_digital_assets) - see there why
+    ("da", r"^Digital Assets Transactions( \(continued\))?$", []),
 ]
 _DATE = re.compile(r"^\d{1,2}/\d{1,2}/\d{2,4}$|^VARIOUS$|^INHERIT")
 
@@ -193,6 +195,9 @@ def _bd_sections(page, pno: int) -> list:
         if first is None:
             continue
         head = body[:first]
+        if key == "da":
+            out += _digital_assets(head, body[first:], title, pno)
+            continue
         pairs = [head[k:k + 2] for k in range(0, len(head), 2)]
         cols = []
         for p in pairs:
@@ -251,6 +256,58 @@ def _bd_sections(page, pno: int) -> list:
             for f, v in vals.items():
                 if f != "term" and v:
                     out.append(dict(source="statement", screen=title, label=label, amount=v, cat=f, box="", page=pno))
+    return out
+
+
+def _digital_assets(head: list, body: list, title: str, pno: int) -> list:
+    """The "Digital Assets Transactions" section (1099-DA / crypto, Form 8949 boxes G-L) -> one gain / (loss) entry per record.
+
+    UT prints this section misaligned (Lady, 2026-11-24): on a record's first line every value sits one column to the right
+    of its header - the units sold ("1") under "1=S,2=L", the term (1 = short, 2 = long) under "Force", and the sale price
+    cut off under "Pric" (210,834 printed as "210"). So only two things are taken:
+      - the gain / (loss) from the second line's "AMT Gain -Loss" column (that line is aligned: its TOTAL is the sum), and
+      - the term from the digit under "Force" (none = short-term).
+    The units and the cut-off price are never used, so no "1" shows up as an amount on Verify return."""
+    words = [w for r in head for w in r]
+    force = next((w for w in words if w[4] == "Force"), None)
+    gain_col = None                                        # (left, right) of "AMT Gain" on the header line that has it
+    for r in head:
+        for i, w in enumerate(r[:-1]):
+            if w[4] == "AMT" and r[i + 1][4] == "Gain":
+                nxt = next((x for x in r[i + 2:] if x[0] > r[i + 1][2]), None)
+                gain_col = (w[0] - 6, nxt[0] if nxt else 10 ** 4)
+    recs, cur = [], None
+    for r in body:
+        toks = [w[4] for w in r]
+        if toks and toks[0].upper().startswith("TOTAL"):
+            cur = None
+            continue
+        if _record_start(toks):
+            cur = [r]
+            recs.append(cur)
+        elif cur is not None:
+            cur.append(r)
+    out = []
+    for rec in recs:
+        first = rec[0]
+        term = next((w[4] for w in first if force and re.fullmatch(r"[123]", w[4])
+                     and w[0] < force[2] + 6 and w[2] > force[0] - 6), "1")
+        gain = None
+        for r in rec[1:]:                                  # the second line (and any after it): the AMT Gain -Loss column
+            for w in r:
+                if gain_col and gain_col[0] < w[2] <= gain_col[1] + 6 and re.fullmatch(r"-?[\d,]+(\.\d+)?|\([\d,]+(\.\d+)?\)", w[4]):
+                    gain = _num(w[4])
+        if not gain:
+            continue
+        label = [w[4] for w in first if not _is_amt(w[4]) and not _DATE.match(w[4]) and w[4] != "$"
+                 and not re.fullmatch(r"\d", w[4])]
+        if label and re.fullmatch(r"[TSJ]", label[0]):     # TSJ: taxpayer / spouse / joint
+            label = label[1:]
+        code = label.pop(0) if label and re.fullmatch(r"[A-L](/[A-L])?", label[0]) else ""
+        cat = "lt" if term in ("2", "3") else "st"
+        m = re.match(r"^([A-L])(?:/([A-L]))?$", code)
+        box = (m.group(2) if cat == "lt" and m.group(2) else m.group(1)) if m else ""     # "H/K": H if short, K if long
+        out.append(dict(source="statement", screen=title, label=" ".join(label), amount=gain, cat=cat, box=box, page=pno))
     return out
 
 

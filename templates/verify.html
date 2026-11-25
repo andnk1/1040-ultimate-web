@@ -26,10 +26,10 @@
       {% if error %}<div class="error">{{ error }}</div>{% endif %}
       {% if ut_error %}<div class="error">{{ ut_error }}</div>{% endif %}
       <div class="field filef"><label>UltraTax input screens (PDF)</label>
-        <div class="pick"><input id="ut" value="{{ ut_path }}" placeholder="C:\…\input screens.pdf">
+        <div class="pick"><input id="ut" value="{{ ut_name }}" data-path="{{ ut_path }}" readonly placeholder="Browse… to pick the input screens print">
           <button type="button" class="light small pickbtn" onclick="pick('ut')">Browse…</button></div></div>
       <div class="field filef"><label>Current-year return (PDF) — optional with the input screens</label>
-        <div class="pick"><input id="cy" value="{{ cy_path }}" placeholder="C:\…\return.pdf">
+        <div class="pick"><input id="cy" value="{{ cy_name }}" data-path="{{ cy_path }}" readonly placeholder="Browse… to pick the 2025 return">
           <button type="button" class="light small pickbtn" onclick="pick('cy')">Browse…</button></div></div>
       <div class="field filef"><button type="button" onclick="runCheck()" id="go">Check</button>
         <p class="hint"><span id="pickMsg"></span> <span id="wait" class="hidden">Reading…</span></p></div>
@@ -69,10 +69,10 @@
 
   <div class="card">
     <div class="cardhead">2 · UltraTax entries with no document</div>
-    <div class="cardbody">{% if ut.back %}<table class="v">
+    <div class="cardbody">{% if ut.back %}<table class="v back">
       <tr><th class="ck">✓</th><th>UT screen</th><th>Entry</th><th>What</th><th class="n">Amount</th><th>Page</th><th>Comment</th></tr>
       {% for x in ut.back %}{% set k = 'v|' ~ x.key %}<tr class="mk{{ ' done' if r.marks.get(k) else ' badrow' }}" data-mk="{{ k }}"><td class="ck">{{ tick(k) }}</td>
-        <td>{{ x.screen }}</td><td>{{ x.label }}</td><td class="note">{{ x.what }}</td><td class="n">{{ money(x.amount) }}</td><td>{{ x.page }}</td><td>{{ cmt(k) }}</td></tr>{% endfor %}
+        <td>{{ x.screen }}</td><td class="en">{{ x.label }}</td><td class="note">{{ x.what }}</td><td class="n">{{ money(x.amount) }}</td><td>{{ x.page }}</td><td class="cm">{{ cmt(k) }}</td></tr>{% endfor %}
     </table>{% else %}<p class="note">None — every UT entry has a document line behind it.</p>{% endif %}</div>
   </div>
 
@@ -195,6 +195,16 @@
   <div class="card">
     <div class="cardhead">Checklist</div>
     <div class="cardbody">
+      {#- the master checklist: a file on the shared drive, picked once (Lady, 2026-11-24; web/py/pages/verify.py master) #}
+      <p class="note noprint">Master checklist:
+        {% if master.connected %}<b>{{ master.name }}</b> (shared — Stays Y lines are kept for every client) ·
+          <a href="#" onclick="chooseMaster('choose'); return false;">Change…</a>
+        {% elif master.waiting %}<b>{{ master.name }}</b> — Chrome asks before the app may use it.
+          <button type="button" class="light small" onclick="chooseMaster('allow')">Allow access</button>
+        {% else %}not chosen — the built-in list is used and Stays Y isn't kept for other clients.
+          <button type="button" class="light small" onclick="chooseMaster('choose')">Choose the master checklist file…</button>
+          <button type="button" class="light small" onclick="chooseMaster('create')">Create a new one…</button>{% endif %}
+        <span id="masterMsg"></span></p>
       <table class="v" id="clTable"></table>
       <div class="bar noprint">
         <button type="button" onclick="addItem()">+ Add a line</button>
@@ -205,7 +215,7 @@
 
   <div class="bar noprint">
     <a class="btn alt" href="/summary/{{ token }}">← Summary</a>
-    <button type="button" class="pickbtn" onclick="saveReview()">Save review (Excel)…</button>
+    <button type="button" class="pickbtn" onclick="saveReview()">Save review (Excel)</button>
     <span id="saveMsg" class="note"></span>
     <button type="button" class="pickbtn" onclick="saveWip()">Save work in progress</button> <span id="wipMsg" class="note"></span>
     <a class="btn alt" href="/ai/{{ token }}">AI Doc Review →</a>
@@ -217,12 +227,14 @@
 const TOKEN = {{ token|tojson }};
 let CL = {{ checklist|safe }};
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-async function pick(id) { const el = document.getElementById(id); const j = await browse('file', el.value ? el.value.replace(/[\\/][^\\/]*$/, '') : ''); if (j.path) el.value = j.path; }
+// Browse…: the browser's file window; the file is copied into the tab and its place there is kept in data-path (the
+// field shows its name)
+async function pick(id) { const el = document.getElementById(id); const j = await browse('pdf'); if (j.path) { el.dataset.path = j.path; el.value = j.path.split('/').pop(); } }
 async function runCheck() {
   document.getElementById('go').disabled = true; document.getElementById('wait').classList.remove('hidden');
   try {
     await fetch(`/verify/${TOKEN}/run`, {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path: document.getElementById('cy').value, ut: document.getElementById('ut').value})});
+      body: JSON.stringify({path: document.getElementById('cy').dataset.path, ut: document.getElementById('ut').dataset.path})});
     reloadPage();
   } finally { document.getElementById('go').disabled = false; }
 }
@@ -238,7 +250,8 @@ let clT;
 function saveCL(now) {
   clearTimeout(clT);
   const go = () => fetch(`/verify/${TOKEN}/checklist`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(CL)})
-    .then(r => r.json()).then(j => { document.getElementById('clMsg').textContent = `Saved · master list: ${j.master} items`; });
+    .then(r => r.json()).then(j => { document.getElementById('clMsg').textContent = `Saved · master list: ${j.master} items` +
+      (j.kept ? '' : ' (not kept for other clients — choose the master checklist file)'); });
   if (now) return go(); clT = setTimeout(go, 600);
 }
 function addItem() { CL.push({text: '', done: false, stays: false, master: false, note: ''}); drawCL(); const els = document.querySelectorAll('input.cltext'); if (els.length) els[els.length - 1].focus(); }
@@ -266,11 +279,21 @@ async function saveWip() {
   if (j.ok) m.textContent = 'Saved ' + j.at + ' — ' + j.file + ' (in ' + j.folder + ')';
   else m.textContent = j.nofolder ? "No place to save yet — choose a folder on the Summary page (Choose a folder…)." : (j.error || "Couldn't save.");
 }
+// the review Excel: into the client folder when the app may write there, else a download
 async function saveReview() {
   await saveCL(true);
-  const m = document.getElementById('saveMsg'); m.textContent = 'Choose the folder…';
+  const m = document.getElementById('saveMsg'); m.textContent = 'Saving…';
   const j = await (await fetch(`/verify/${TOKEN}/save`, {method: 'POST'})).json();
-  m.textContent = j.error ? j.error : j.cancelled ? 'Cancelled.' : 'Saved: ' + j.saved;
+  if (j.download) { goTo(j.download); m.textContent = 'Downloaded: ' + j.file; return; }
+  m.textContent = j.error ? j.error : 'Saved: ' + j.saved;
+}
+// the master checklist file: choose it / create it / allow access (the app's frame opens Chrome's file window)
+async function chooseMaster(action) {
+  const m = document.getElementById('masterMsg'); m.textContent = '';
+  const j = await (await fetch(`/verify/${TOKEN}/master`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action})})).json();
+  if (j.error) { m.textContent = j.error; return; }
+  if (!j.cancelled) reloadPage();
 }
 drawCL();
 </script>

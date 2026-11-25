@@ -192,6 +192,7 @@ def build_income_summary(py_income: dict, docs: list, schc: list | None, py_year
         reds = [(l, n, None) for l, n in red]
         sections.append(dict(key=key, label=label, rows=rows, red=reds, py=py_income.get(key), note=py_income.get(key + "_note", "")))
 
+    fam_of = {d["file"]: d.get("family") for d in docs}
     # federal withholding: once per document, on its first row in the summary
     fit_by_file = {d["file"]: d["parsed"].get("fit") for d in docs if isinstance(d.get("parsed"), dict) and d["parsed"].get("fit")}   # 0 = none -> blank
     done = set()
@@ -231,6 +232,9 @@ def build_income_summary(py_income: dict, docs: list, schc: list | None, py_year
                     r["read_note"], r["note"], r["note_edited"] = r["note"], e["note"], True
             r["differs"] = (abs((r["doc_cy"] or 0) - (r["cy"] or 0)) > 0.005
                             or abs((r["doc_fit"] or 0) - (r.get("fit") or 0)) > 0.005)
+        for r in sec["rows"]:
+            r["lock"] = where_to_correct(r, fam_of)
+            r["kept"] = bool(r["lock"] and r.get("edited"))   # corrected here before the lock: still counts, with a note
         for r in sec["rows"]:
             r["source"] = ("added by preparer" if r.get("added") else
                            ("changed by preparer" if r.get("edited") else "document inventory") if r.get("inv") else
@@ -347,6 +351,24 @@ DED_CATS = [
     ("mortgage", "Total Mortgage Interest", []),
 ]
 DED_FEEDS = {"1098e": ["student_loan"], "1098": ["mortgage"]}
+
+
+def where_to_correct(row: dict, fam_of: dict) -> str:
+    """Where a summary row's amount is corrected, when not on the summary itself (Lady, 2026-11-24): a document the program
+    read is corrected only on its own screen - its form tab, or K-1 UT for a K-1 line - so the summary and the document can't
+    say different things. "" = the row stays typeable on the summary: lines added with +, amounts typed on the Document
+    inventory, documents the program didn't read, the Schedule C / E box results (corrected in their box), and read documents
+    that have no screen of their own yet (the crypto reports' Schedule D / Schedule 1)."""
+    if row.get("added") or row.get("inv") or row.get("excluded") or row.get("status") in ("none", "excluded", None):
+        return ""
+    if row.get("schc") is not None or row.get("sche") is not None:
+        return ""
+    if str(row.get("file") or "").startswith("k1v:"):
+        return "K-1 UT (Open K-1 Tab)"
+    from core.formview import FAMILIES, TABS       # (here, not at the top: formview reads the summary rows too)
+    fam = fam_of.get(row.get("file"))
+    label = dict(TABS).get(fam)
+    return f"the {label} tab (Document inventory)" if fam in FAMILIES and label else ""
 
 
 def build_deduction_summary(py_income: dict, docs: list, py_year, cy_year, edits=None, added=None) -> dict:

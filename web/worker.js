@@ -79,7 +79,7 @@ function request(m) {
 }
 
 // the start's helpers that the page may call (nothing else is callable this way)
-const CALLS = new Set(["password_candidates", "stuck_message"]);
+const CALLS = new Set(["password_candidates", "stuck_message", "master_path"]);
 function call(m) {
   if (!CALLS.has(m.fn)) throw new Error("not callable: " + m.fn);
   const fn = py.globals.get("webapp")[m.fn];

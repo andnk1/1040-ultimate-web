@@ -25,7 +25,7 @@ ROUTES = [
     ("GET",  "/summary/<token>",                    summary.show),                # 1 · Summary
     ("GET",  "/sche/template.xlsx",                 summary.schedule_e_template), # Schedule E box → Blank template
     ("GET",  "/sche/<token>/template.xlsx",         summary.schedule_e_template), # Schedule E box → Export Template
-    ("GET",  "/verify/<token>",                     verify.show),                 # 2 · Verify return (not yet)
+    ("GET",  "/verify/<token>",                     verify.show),                 # 2 · Verify return
     ("GET",  "/ai/<token>",                         ai.doc_review),               # 3 · AI Doc Review (waits for the key)
     ("GET",  "/ai-return/<token>",                  ai.return_review),            # 4 · AI Return Review
     ("GET",  "/ai-advisory/<token>",                ai.advisory),                 # 5 · AI Advisory
@@ -53,6 +53,12 @@ ROUTES = [
     ("GET",  "/sche/<token>/<i>/workpaper.csv",     summary.schedule_e_csv),      # Schedule E box → a property's workpaper
     ("GET",  "/income/<token>/excel",               summary.income_excel),        # Income and Deduction Summary (Excel)
     ("POST", "/k1/<token>/remove",                  summary.k1_remove),           # K-1 box → Remove
+    # Verify return (web/py/pages/verify.py)
+    ("POST", "/verify/<token>/run",                 verify.check_files),          # Check: the UT input screens / the 2025 return
+    ("POST", "/verify/<token>/checklist",           verify.save_checklist),       # the checklist (ticks, notes, Stays Y / N)
+    ("POST", "/verify/<token>/master",              verify.master),               # the master checklist file (shared drive)
+    ("POST", "/verify/<token>/save",                verify.save_review),          # Save review (Excel): client folder or download
+    ("GET",  "/verify/<token>/review.xlsx",         verify.review_file),          # ... the download
     # the K-1 pages (web/py/pages/k1.py) - <token> here is the K-1 run's own token
     ("POST", "/k1v/files/<token>",                  k1.add_files),                # K-1s → Add K-1 PDFs…
     ("GET",  "/k1v/k1/<token>",                     k1.interpreter),              # K-1 Interpreter
@@ -72,7 +78,8 @@ ROUTES = [
 # after these saves the work in progress is saved (the desktop app did the same after every change)
 AUTOSAVE = {summary.save_edits, summary.confirm_edit, summary.save_added, summary.save_carry_added, summary.save_comments,
             summary.save_marks, summary.save_inventory, summary.save_invnote, summary.save_toai, summary.save_formview,
-            summary.save_ut, summary.save_schc, summary.save_sche, summary.k1_remove}
+            summary.save_ut, summary.save_schc, summary.save_sche, summary.k1_remove, verify.check_files,
+            verify.save_checklist}
 
 
 def _pattern(address: str) -> re.Pattern:

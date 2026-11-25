@@ -44,6 +44,7 @@ def run_check(pyret: str, docs: list, step=_quiet, clientsum: str = "", stuck: l
     readcache.clear()                                # a new Run check reads every file (Add more documents… reads only new ones)
     r = runcheck.run(form, [str(p) for p in docs], work_dir=WORK / "accounts", step=step, stuck_docs=list(stuck or []),
                      can_write=can_write)
+    r["places"] = places                             # where Chrome lets the app write (Verify return's review Excel)
     RUNS[r["token"]] = r
     step("saving the work in progress")
     save_work(r)
@@ -79,7 +80,7 @@ def add_documents(token: str, docs: list, step=_quiet, stuck: list | None = None
                        can_write=lambda path: False)   # (the temporary copy is never the place to save)
     for d, ticked in runcheck.default_to_ai(new).items():   # a new document gets its AI tick as on a first run
         new["to_ai"].setdefault(d, ticked)
-    for k in ("wip_path", "wip_bak_done", "wip_saved", "wip_error", "wip_loaded"):   # the same work-in-progress file as before
+    for k in ("wip_path", "wip_bak_done", "wip_saved", "wip_error", "wip_loaded", "places"):   # the same work-in-progress file as before
         new[k] = old.get(k)
     RUNS.pop(token, None)
     RUNS[new["token"]] = new
@@ -87,6 +88,12 @@ def add_documents(token: str, docs: list, step=_quiet, stuck: list | None = None
     save_work(new)
     step("done")
     return new["token"]
+
+
+def master_path() -> str:
+    """Verify return's master checklist on the in-memory drive (the page maps it to the file on the shared drive)."""
+    from pages import verify
+    return verify.master_path()
 
 
 def password_candidates(names: list) -> list:

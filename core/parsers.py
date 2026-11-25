@@ -26,6 +26,14 @@ from .pdfutil import open_pdf, page_text
 NUM = re.compile(r"(?<![\d/,])(\(?-?\$?\s?[\d,]*\d\.\d{2}\)?)(?![\d/%])")
 
 
+from core.ssn import last4s                       # the recipient's SSN, last 4 (one shared search, core/ssn.py)
+
+
+def last4s_words(pages_words) -> list:
+    """The SSN search on pages the reader already has as words (no new reading): each page's words joined into its text."""
+    return last4s([" ".join(w[4] for w in words) for words in pages_words])
+
+
 def _n(s: str) -> float:
     s = s.replace("$", "").replace(",", "").replace(" ", "")
     neg = s.startswith("(") or s.startswith("-")
@@ -217,7 +225,8 @@ def _ib_b(texts) -> dict:
             r["gain"] += proceeds - cost + md + wash
             bx = re.search(r"check\s+box\s+on\s+Form\s+8949\s*\n\s*([A-LX])\b", seg)
             if bx:
-                IB_BOXES.append((bx.group(1), proceeds, proceeds - cost + md + wash))
+                five = dict(proceeds=proceeds, cost=cost, md=md, wash=wash, gain=proceeds - cost + md + wash)
+                IB_BOXES.append((bx.group(1), proceeds, five["gain"], five))
         if res:
             break                          # the summary is printed once; later pages are details
     # drop sections with nothing in them (IB prints all three even when empty)
@@ -242,8 +251,12 @@ BOX_PATTERNS = [
 ]
 
 
+B_FIVE = ("proceeds", "cost", "md", "wash", "gain")   # the five 1099-B numbers, in the order the summary rows print them
+
+
 def _box_rows(texts) -> list:
-    """[(box, proceeds, gain)] - first summary row per box, in the order found."""
+    """[(box, proceeds, gain, five)] - first summary row per box, in the order found; five = all five numbers of the row
+    (proceeds, cost, market discount, wash sale, gain) for the form tab's box groups."""
     rows, seen = [], set()
     for t in texts:
         for pat, box, how in BOX_PATTERNS:
@@ -255,20 +268,20 @@ def _box_rows(texts) -> list:
                 if len(v) < 5:
                     continue
                 seen.add(bx)
-                rows.append((bx, v[0], v[4]))
+                rows.append((bx, v[0], v[4], dict(zip(B_FIVE, v[:5]))))
     return rows
 
 
 def _pick_boxes(rows, b: dict) -> dict:
-    """{'st': [(box, gain, proceeds)], 'lt': [...]} - only when the box rows add up to the term's total gain."""
+    """{'st': [(box, gain, proceeds, five)], 'lt': [...]} - only when the box rows add up to the term's total gain."""
     out = {}
     for term in ("st", "lt", "und"):
         tot = (b.get(term) or {}).get("gain")
         if tot is None:
             continue
-        mine = [(bx, g, pr) for bx, pr, g in rows if BOX_TERM.get(bx) == term]
+        mine = [(bx, g, pr, five) for bx, pr, g, five in rows if BOX_TERM.get(bx) == term]
         for grp in (mine, [r for r in mine if r[0] in "ABCDEFX"], [r for r in mine if r[0] in "GHIJKL"]):
-            if grp and abs(sum(g for _, g, _ in grp) - tot) <= 1.0:
+            if grp and abs(sum(r[1] for r in grp) - tot) <= 1.0:
                 out[term] = [r for r in grp if abs(r[1]) > 0.004 or abs(r[2]) > 0.004] or grp[:1]
                 break
     return out
@@ -281,6 +294,7 @@ def parse_1099(path, pw=None, maxpages=12) -> dict:
     texts, _ = _texts(path, pw, maxpages)
     found, bsum, seen, fit = {}, {}, [], 0.0
     fpage, bpage = {}, None                     # the page each box was first read on / the 1099-B summary's page
+    form_texts = []                             # the form / summary pages read (the SSN is looked for there only)
     for pno, t in enumerate(texts, 1):
         # form / summary pages only - detail pages repeat box labels as column headers
         if not re.search(r"OMB\s*No|Copy\s*B|Summary\s+Information|Tax\s+Summary|Summary\s+of", t, re.I):
@@ -291,6 +305,8 @@ def parse_1099(path, pw=None, maxpages=12) -> dict:
         if (f or b) and sig in seen:
             continue                     # same form printed twice (copies)
         seen.append(sig)
+        if f or b:
+            form_texts.append(t)
         fit += _fit(t)
         for k in f:
             fpage.setdefault(k, pno)
@@ -308,14 +324,14 @@ def parse_1099(path, pw=None, maxpages=12) -> dict:
         bsum = grand                      # Schwab: the overall Sales Price totals replace the per-category rows
     elif not bsum:
         bsum = _ib_b(all_texts)           # Interactive Brokers: box-by-box section summaries
-    rows = [(bx, pr, g) for bx, pr, g in IB_BOXES] if bsum and IB_BOXES else _box_rows(all_texts)
+    rows = list(IB_BOXES) if bsum and IB_BOXES else _box_rows(all_texts)
     IB_BOXES.clear()
     picked = _pick_boxes(rows, bsum)
     res = _amounts_1099(found, bsum, " ".join(texts), missing, picked)
     res["fit"] = round(fit, 2)
     # kept to work the result out again after a correction on the form tab (statement_again): the proceeds with no cost
-    # basis and the Form 8949 box rows (box, gain, proceeds) by term
-    res.update(reader="1099_statement", redo_inputs=dict(missing=missing or {}, boxes=picked))
+    # basis and the Form 8949 box rows (box, gain, proceeds, its five numbers) by term
+    res.update(reader="1099_statement", redo_inputs=dict(missing=missing or {}, boxes=picked), ssn4=last4s(form_texts))
     _composite_pages(res, fpage, bpage or (_page_where(all_texts, r"Proceeds") if bsum else None))
     mm = MARGIN.search(" \n".join(all_texts))
     if mm and _n(mm.group(1)):
@@ -343,6 +359,25 @@ def _composite_pages(res: dict, fpage: dict, bpage) -> None:
                 part_pages[lb] = bpage
     res["part_pages"] = {k: p for k, p in part_pages.items() if p}
     res["page"] = min(res["pages"].values(), default=None) or bpage
+
+
+def _box_sum_notes(b: dict, boxes: dict) -> list:
+    """Lady, 2026-11-23: a term's Form 8949 box rows must add up to its five totals (proceeds, cost, market discount, wash
+    sale, gain), within $1 each. A note when they don't (e.g. a box row the reader missed, or a misread number) - it goes to
+    the document's comment on the income summary ("wash-sale", not "wash sale": notes naming a wash sale are left out there)."""
+    out = []
+    for term, rows in (boxes or {}).items():
+        tot = b.get(term)
+        fives = [r[3] for r in rows if len(r) > 3]
+        if not tot or len(fives) != len(rows):
+            continue
+        off = [f"{lbl} {sum(x.get(k, 0) for x in fives):,.2f} vs {tot.get(k, 0):,.2f}"
+               for k, lbl in zip(B_FIVE, ("proceeds", "cost", "market discount", "wash-sale loss", "gain"))
+               if abs(sum(x.get(k, 0) for x in fives) - tot.get(k, 0)) > 1.0]
+        if off:
+            name = {"st": "Short-term", "lt": "Long-term", "und": "Term unknown"}.get(term, term)
+            out.append(f"1099-B {name}: the Form 8949 box lines don't add up to the term totals ({'; '.join(off)}) — check")
+    return out
 
 
 def _amounts_1099(f: dict, b: dict, text: str, missing: dict | None = None, boxes: dict | None = None) -> dict:
@@ -425,17 +460,18 @@ def _amounts_1099(f: dict, b: dict, text: str, missing: dict | None = None, boxe
         pl = []
         if term in b:
             if boxes.get(term):
-                pl += [(f"({bx})", g) for bx, g, _ in boxes[term]]
+                pl += [(f"({bx})", g) for bx, g, *_ in boxes[term]]
             else:
                 pl.append(("", b[term]["gain"]))
         if term == "st" and b.get("und", {}).get("gain"):
-            pl += [(f"({bx}) term unknown", g) for bx, g, _ in boxes["und"]] if boxes.get("und") else [("term unknown", b["und"]["gain"])]
+            pl += [(f"({bx}) term unknown", g) for bx, g, *_ in boxes["und"]] if boxes.get("und") else [("term unknown", b["und"]["gain"])]
         if term == "lt" and f.get("div_2a"):
             pl.append(("Sch D 13 cap gain distr.", f["div_2a"]))
         if f.get("s1256_11"):
             pl.append(("6781 §1256 " + ("40%" if term == "st" else "60%"), (0.4 if term == "st" else 0.6) * f["s1256_11"]))
         if pl and abs(sum(v for _, v in pl) - a[term]) <= 1.0:
             parts[term] = pl
+    notes += _box_sum_notes(b, boxes)
     return dict(status=status, amounts=a, detail=dict(f, **{f"b_{k}": v for k, v in b.items()}), notes=notes, checks=checks,
                 parts=parts)
 
@@ -938,9 +974,9 @@ R_CODES = {
 }
 
 
-def _r_extras(page) -> dict:
+def _r_extras(page, words=None) -> dict:
     """Distribution code(s) (box 7a), IRA/SEP/SIMPLE (7b) and 2b check boxes, by position on the IRS layout."""
-    words = page.get_text("words")
+    words = page.get_text("words") if words is None else words
     find = lambda t, nxt=None: next((w for i, w in enumerate(words) if w[4] == t and (nxt is None or
                                      any(x[4].startswith(nxt) and abs(x[1] - w[1]) < 3 for x in words))), None)
     out = {}
@@ -969,18 +1005,21 @@ def parse_1099r(path, pw=None) -> dict:
     """IRS-layout 1099-R by position first, then the text reader (brokers' substitute forms)."""
     doc, _ = open_pdf(path, [pw] if pw else None)
     seen, keys, first = [], [], None                   # first = the page of the first 1099-R (for the summary's link)
+    form_words = []                                    # the words of the pages a 1099-R was read on (the SSN search)
     with doc:
         for pno, page in enumerate(doc, 1):
-            copies = [b for b in ({k: v for k, v in c.items() if abs(v) > 0.004} for c in _page_copies(page, "r")) if b]
+            words = page.get_text("words")
+            copies = [b for b in ({k: v for k, v in c.items() if abs(v) > 0.004} for c in _page_copies(page, "r", words)) if b]
             if not copies:
                 continue
-            pex = _r_extras(page)                      # code, IRA/SEP/SIMPLE, 2b checks: read once per page (copies share them)
+            form_words.append(words)
+            pex = _r_extras(page, words)               # code, IRA/SEP/SIMPLE, 2b checks: read once per page (copies share them)
             for b in copies:
                 # Copy B / C / 1 / 2 count once: same boxes 1, 2a, 4 and the same box 7 code (state boxes never count)
                 if _add_copy(seen, keys, dict(b, **pex), _key(b, "r") + (pex.get("code"),)):
                     first = first or pno
     if seen:
-        return r1099_result(seen, first)
+        return dict(r1099_result(seen, first), ssn4=last4s_words(form_words))
     lst = _list_boxes(path, R_LIST, pw)                   # list layout: "1 Gross distribution ....... 10,579.22"
     if lst and any(_lnum(f.get("1")) is not None or _lnum(f.get("2a")) is not None for f in lst):
         num = lambda f, k: _lnum(f.get(k)) if f.get(k) and re.search(r"\d\.\d\d|,", f.get(k)) else None
@@ -1077,8 +1116,9 @@ def _parse_1099r_text(path, pw=None) -> dict:
     fit = (_after(t, fw.end()) or 0) if fw else 0
     one = {k: v for k, v in (("1", gross), ("2a", taxable), ("4", fit or None), ("code", code.group(1) if code else None),
                              ("ira", ira or None)) if v is not None}          # the one form, for the form tab
+    page = _page_where(texts, B + r"1\W{0,6}Gross\s+distribution")
     return dict(_r_result(gross, taxable, code.group(1) if code else None, ira or None, fit, {}),
-                page=_page_where(texts, B + r"1\W{0,6}Gross\s+distribution"), per_form=[one], reader="1099r")
+                page=page, per_form=[one], reader="1099r", ssn4=last4s(texts[page - 1:page] if page else []))
 
 
 def parse_ssa(path, pw=None) -> dict:
@@ -1090,7 +1130,9 @@ def parse_ssa(path, pw=None) -> dict:
         return dict(status="none", amounts={}, detail={}, notes=[], checks=["SSA-1099 box 5 not found"])
     w = re.search(r"Box\s*6\.?\s*Voluntary\s+Federal\s+Income\s+Tax\s+Withheld", t, re.I)
     fit = (_after(t, w.end(), 300) or 0) if w else 0
-    return ssa_result(v, fit, _page_where(texts, r"Box\s*5\.?\s*Net\s+Benefits"), _more_than_one(path, pw, _ssa_keys))
+    res = ssa_result(v, fit, _page_where(texts, r"Box\s*5\.?\s*Net\s+Benefits"), _more_than_one(path, pw, _ssa_keys))
+    res["ssn4"] = last4s([x for x in texts if re.search(r"Box\s*5\.?\s*Net\s+Benefits", x, re.I)])
+    return res
 
 
 def _ssa_keys(text: str):
@@ -1170,13 +1212,18 @@ SA_SPEC = [("1", r"Gross\s+distribution"), ("2", r"Earnings\s+on\s+excess"), ("3
 
 def parse_1099sa(path, pw=None) -> dict:
     forms = _list_boxes(path, SA_SPEC, pw)
+    form_texts = None                                       # the pages a 1099-SA was read on (the SSN search); list layout: none kept
     if not forms:                                           # IRS table layout
+        form_texts = []
         doc, _ = open_pdf(path, [pw] if pw else None)
         with doc:
             for page in doc:
-                for c in _page_copies(page, "sa"):
+                copies = _page_copies(page, "sa")
+                t = page.get_text() if copies else ""
+                if copies:
+                    form_texts.append(t)
+                for c in copies:
                     f = {k: f"{v:.2f}" for k, v in c.items()}
-                    t = page.get_text()
                     m = re.search(r"Distribution\s+code\W{0,40}?\b([1-6])\b", t, re.I)
                     if m:
                         f["3"] = m.group(1)
@@ -1193,7 +1240,10 @@ def parse_1099sa(path, pw=None) -> dict:
     forms = merged
     if not forms or not any(_lnum(f.get("1")) for f in forms):
         return dict(status="none", amounts={}, detail={}, notes=[], checks=["1099-SA box 1 gross distribution not found"])
-    return sa_result(forms)
+    res = sa_result(forms)
+    if form_texts is not None:
+        res["ssn4"] = last4s(form_texts)
+    return res
 
 
 def sa_result(forms: list) -> dict:
@@ -1242,15 +1292,15 @@ BOX_DESC = {"misc": {"5": "Fishing boat proceeds", "6": "Medical and health care
 AMT_W = re.compile(r"^\$?\(?-?[\d,]*\d\.\d{2}\)?$")
 
 
-def _page_boxes(page, kind) -> dict:
+def _page_boxes(page, kind, words=None) -> dict:
     """All the box amounts on the page (one copy). Several copies on one page: use _page_copies."""
-    cs = _page_copies(page, kind)
+    cs = _page_copies(page, kind, words)
     return cs[0] if cs else {}
 
 
-def _page_copies(page, kind) -> list:
+def _page_copies(page, kind, words=None) -> list:
     """Every copy printed on the page (Copy B / C / 2 ... stacked or side by side) -> [{box: amount}], one dict per copy."""
-    words = page.get_text("words")                     # x0, y0, x1, y1, text, block, line, word
+    words = page.get_text("words") if words is None else words     # x0, y0, x1, y1, text, block, line, word
     lines = {}
     for w in words:
         lines.setdefault((w[5], w[6]), []).append(w)
@@ -1338,15 +1388,19 @@ def parse_1099_form(path, kind, pw=None) -> dict:
     """1099-MISC / 1099-NEC on the IRS layout. Copies (A, 1, B, 2 ...) count once: same key boxes = same form (KEY_BOXES)."""
     doc, _ = open_pdf(path, [pw] if pw else None)
     seen, keys, first = [], [], None                      # first = the page of the first form (for the summary's link)
+    form_words = []                                       # the words of the pages a form was read on (the SSN search)
     with doc:
         for pno, page in enumerate(doc, 1):
-            for c in _page_copies(page, kind):
-                b = {k: v for k, v in c.items() if abs(v) > 0.004}
-                if b and _add_copy(seen, keys, b, _key(b, kind)):
+            words = page.get_text("words")
+            copies = [b for b in ({k: v for k, v in c.items() if abs(v) > 0.004} for c in _page_copies(page, kind, words)) if b]
+            if copies:
+                form_words.append(words)
+            for b in copies:
+                if _add_copy(seen, keys, b, _key(b, kind)):
                     first = first or pno
     if not seen:
         return dict(status="none", amounts={}, detail={}, notes=[], checks=[f"1099-{kind.upper()} amounts not found"], fit=0.0)
-    return form_1099_result(seen, kind, first)
+    return dict(form_1099_result(seen, kind, first), ssn4=last4s_words(form_words))
 
 
 def form_1099_result(forms: list, kind: str, first=None) -> dict:
@@ -1411,10 +1465,12 @@ def parse_1099int_rows(path, pw=None) -> dict:
     """Substitute 1099-INTs (banks): each box label on the left, its amount at the right end of the same row."""
     doc, _ = open_pdf(path, [pw] if pw else None)
     seen, keys, first = [], [], None                      # first = the page of the first 1099-INT (for the summary's link)
+    form_words = []                                       # the words of the pages a 1099-INT was read on (the SSN search)
     with doc:
         for pno, page in enumerate(doc, 1):
             got = {}
-            for ws in _rows(page.get_text("words")):
+            words = page.get_text("words")
+            for ws in _rows(words):
                 amts = [w for w in ws if AMT_W.match(w[4])]
                 if not amts:
                     continue
@@ -1426,11 +1482,13 @@ def parse_1099int_rows(path, pw=None) -> dict:
                         got[key] = _n(amts[-1][4].lstrip("$"))
                         break
             # copies count once: same boxes 1, 3 and 4 (KEY_BOXES); a copy fills in boxes the first one missed
+            if "int_1" in got:
+                form_words.append(words)
             if "int_1" in got and _add_copy(seen, keys, got, _key(got, "int")):
                 first = first or pno
     if not seen:
         return dict(status="none", amounts={}, detail={}, notes=[], checks=["1099-INT box 1 not found"], fit=0.0)
-    return int_rows_result(seen, first)
+    return dict(int_rows_result(seen, first), ssn4=last4s_words(form_words))
 
 
 def int_rows_result(forms: list, first=None) -> dict:
@@ -1463,25 +1521,28 @@ def parse_1098e(path, pw=None) -> dict:
     capitalized interest (pre-9/1/2004 loans)."""
     doc, _ = open_pdf(path, [pw] if pw else None)
     seen, keys, first = [], [], None                      # first = the page of the first 1098-E (for the summary's link)
+    form_words = []                                       # the words of the pages a 1098-E was read on (the SSN search)
     with doc:
         for pno, page in enumerate(doc, 1):
-            b = _page_boxes(page, "e")
+            ws = page.get_text("words")
+            b = _page_boxes(page, "e", ws)
             if not b.get("1"):
-                for ws in _rows(page.get_text("words")):
-                    amts = [w for w in ws if AMT_W.match(w[4])]
-                    txt = " ".join(w[4] for w in ws)
+                for ws_row in _rows(ws):
+                    amts = [w for w in ws_row if AMT_W.match(w[4])]
+                    txt = " ".join(w[4] for w in ws_row)
                     if amts and re.search(r"Student\s+loan\s+interest", txt, re.I):
                         b = {"1": _n(amts[-1][4].lstrip("$"))}
                         break
+            if b.get("1"):
+                form_words.append(ws)
             if b.get("1") and (b["1"],) not in keys:          # copies count once: the same box 1 (its only amount)
-                ws = page.get_text("words")
                 lab = next((w for w in ws if re.fullmatch(r"2\.?", w[4]) and any(x[4] == "If" and abs(x[1] - w[1]) < 3 for x in ws)), None)
                 box2 = bool(lab and any(x[4] in ("X", "x", "✓", "✔", "■") and abs(x[1] - lab[1]) < 25 and x[0] > lab[0] for x in ws))
                 _add_copy(seen, keys, {"1": b["1"], "2": box2}, (b["1"],))
                 first = first or pno
     if not seen:
         return dict(status="none", amounts={}, detail={}, notes=[], checks=["1098-E box 1 not found"])
-    return e1098_result(seen, first)
+    return dict(e1098_result(seen, first), ssn4=last4s_words(form_words))
 
 
 def e1098_result(forms: list, first=None) -> dict:
@@ -1568,10 +1629,10 @@ def _m_name(words, pat, colR) -> tuple[str, list]:
     return (lines[0] if lines else ""), lines[1:]
 
 
-def _m_page(page) -> list[dict]:
+def _m_page(page, words=None) -> list[dict]:
     """Every 1098 printed on the page (one per box-1 label) -> [{row key: value}] (the form view's row keys: b1 ... b9,
     b10:<description>, b11, ln = lender, br = borrower, acct)."""
-    words = page.get_text("words")
+    words = page.get_text("words") if words is None else words
     labs = _m_labels(words)
     anchors = sorted([l for l in labs if l["box"] == "1"], key=lambda l: l["y"])
     if not anchors:
@@ -1667,9 +1728,14 @@ def parse_1098(path, pw=None) -> dict:
     """1098 (mortgage interest): the lender's print or the IRS blank. Copies (A / B / C) with the same amounts count once."""
     doc, _ = open_pdf(path, [pw] if pw else None)
     forms, first = [], None                             # first = the page of the first 1098 (for the summary's link)
+    form_words = []                                     # the words of the pages a 1098 was read on (the SSN search)
     with doc:
         for pno, page in enumerate(doc, 1):
-            for f in _m_page(page):
+            words = page.get_text("words")
+            found = _m_page(page, words)
+            if found:
+                form_words.append(words)
+            for f in found:
                 key = (f.get("b1"), f.get("b2"), f.get("b3"), f.get("acct"))
                 old = next((o for o in forms if (o.get("b1"), o.get("b2"), o.get("b3"), o.get("acct")) == key), None)
                 if old is None:
@@ -1678,7 +1744,7 @@ def parse_1098(path, pw=None) -> dict:
                 else:                                   # another copy: boxes it missed are filled from this one
                     for k, v in f.items():
                         old.setdefault(k, v)
-    return dict(m1098_result(forms), page=first)
+    return dict(m1098_result(forms), page=first, ssn4=last4s_words(form_words))
 
 
 # ---------------------------------------------------------------- 1095-A / 1098-T (not income: a note + screen 2 checks)
@@ -1704,10 +1770,11 @@ def parse_1098t(path, pw=None) -> dict:
     """1098-T box 1 (payments), 5 (scholarships), 4 / 6 (adjustments), 7 / 8 / 9 checks -> a note only (education credits)."""
     doc, _ = open_pdf(path, [pw] if pw else None)
     boxes, checks, pairs = {}, set(), set()        # pairs = each page's key boxes (1, 5): another pair = another 1098-T?
+    form_words = []                                # the words of the pages a 1098-T box was read on (the SSN search)
     with doc:
         for page in doc:
-            b = _page_boxes(page, "t")
             ws_all = page.get_text("words")
+            b = _page_boxes(page, "t", ws_all)
             if not b.get("1") and not b.get("5"):                  # school statements: "Payments received ... 12,400.00"
                 for ws in _rows(ws_all):
                     txt = " ".join(w[4] for w in ws)
@@ -1726,6 +1793,7 @@ def parse_1098t(path, pw=None) -> dict:
                         b[m.group(1)] = _n(m.group(2))
             if b.get("1") or b.get("5"):
                 pairs.add((b.get("1"), b.get("5")))
+                form_words.append(ws_all)
             for k, v in b.items():
                 if v and k not in boxes:
                     boxes[k] = v
@@ -1735,7 +1803,7 @@ def parse_1098t(path, pw=None) -> dict:
                         checks.add(bx)
     if not boxes:
         return dict(status="none", amounts={}, detail={}, notes=[], checks=["1098-T box 1 / box 5 not found"])
-    return t1098_result(boxes, sorted(checks), len(pairs) > 1)
+    return dict(t1098_result(boxes, sorted(checks), len(pairs) > 1), ssn4=last4s_words(form_words))
 
 
 def t1098_result(boxes: dict, checks: list, more=False) -> dict:
@@ -1759,9 +1827,11 @@ def parse_1095a(path, pw=None) -> dict:
     """1095-A Part III line 33 (annual totals), column C = advance payment of premium tax credit -> a note only."""
     doc, _ = open_pdf(path, [pw] if pw else None)
     c_total, months, line33 = None, [], set()      # line33 = every line 33 column C found: two amounts = two 1095-As?
+    form_words = []                                # the words of the pages line 33 was read on (the SSN search)
     with doc:
         for page in doc:
             ws_all = page.get_text("words")
+            n_before = len(line33)
             rows = _rows(ws_all)
             # column C: x of the "C." heading (Monthly advance payment of premium tax credit)
             cx = None
@@ -1785,11 +1855,13 @@ def parse_1095a(path, pw=None) -> dict:
                         line33.add(c_total)
                 elif re.match(r"^(2[1-9]|3[0-2])\b", txt) and len(amts) >= 3:
                     months.append(_n(amts[-1][4].lstrip("$")))
+            if len(line33) > n_before:
+                form_words.append(ws_all)
     if c_total is None and months:
         c_total = round(sum(months), 2)
     if c_total is None:
         return dict(status="none", amounts={}, detail={}, notes=[], checks=["1095-A line 33 column C not found"])
-    return a1095_result(c_total, len(line33) > 1)
+    return dict(a1095_result(c_total, len(line33) > 1), ssn4=last4s_words(form_words))
 
 
 def a1095_result(aptc, more=False) -> dict:
@@ -1815,9 +1887,11 @@ def parse_box_rows(path, pw=None) -> dict:
     """Statements that print one 'BOX n: label .... amount' row per box, grouped under a 1099-x heading."""
     doc, _ = open_pdf(path, [pw] if pw else None)
     found, fit, sect, first = {}, 0.0, None, None        # first = the page of the first box read (for the summary's link)
+    form_words = []                                       # the words of the pages a box was read on (the SSN search)
     with doc:
         for pno, page in enumerate(doc, 1):
-            for ws in _rows(page.get_text("words")):
+            words, n_before = page.get_text("words"), len(found)
+            for ws in _rows(words):
                 txt = " ".join(w[4] for w in ws)
                 h = re.match(r"(1099-(?:B|INT|DIV|MISC))\b", txt, re.I)
                 if h:
@@ -1835,6 +1909,8 @@ def parse_box_rows(path, pw=None) -> dict:
                 elif key not in found:
                     found[key] = v
                     first = first or pno
+            if len(found) > n_before:
+                form_words.append(words)
     if not found:
         return dict(status="none", amounts={}, detail={}, notes=[], checks=["box amounts not found"], fit=0.0)
     res = _amounts_1099(found, {}, "", {})
@@ -1842,7 +1918,7 @@ def parse_box_rows(path, pw=None) -> dict:
     res["status"] = "read"
     res["fit"] = round(fit, 2)
     res["page"] = first
-    res.update(reader="1099_statement", redo_inputs=dict(missing={}, boxes=None))
+    res.update(reader="1099_statement", redo_inputs=dict(missing={}, boxes=None), ssn4=last4s_words(form_words))
     return res
 
 
@@ -1857,10 +1933,12 @@ _BOXTOK = re.compile(r"^(\d{1,2}[a-hA-H]?)[.:]$")
 def parse_box_list(path, pw=None) -> dict:
     doc, _ = open_pdf(path, [pw] if pw else None)
     found, fit, heads, first = {}, 0.0, [], None         # first = the page of the first box read (for the summary's link)
+    form_words = []                                       # the words of the pages a box was read on (the SSN search)
     with doc:
         for pno, page in enumerate(doc, 1):
             heads = []
-            for ws in _rows(page.get_text("words")):
+            words, n_before = page.get_text("words"), len(found)
+            for ws in _rows(words):
                 txt = " ".join(w[4] for w in ws)
                 for m in re.finditer(r"FORM\s+(1099)[\s-]*(DIV|INT|B|MISC)\b", txt, re.I):
                     # x of the heading: the word "FORM" before this match
@@ -1886,6 +1964,8 @@ def parse_box_list(path, pw=None) -> dict:
                     elif key not in found:
                         found[key] = v
                         first = first or pno
+            if len(found) > n_before:
+                form_words.append(words)
     if not found:
         return dict(status="none", amounts={}, detail={}, notes=[], checks=["box list not found"], fit=0.0)
     b, extra = {}, []
@@ -1900,7 +1980,7 @@ def parse_box_list(path, pw=None) -> dict:
     res["page"] = first
     if not (pr or co):
         res["notes"].append("1099-B: no sales (proceeds 0)")
-    res.update(reader="1099_statement", redo_inputs=dict(missing={}, boxes=None))
+    res.update(reader="1099_statement", redo_inputs=dict(missing={}, boxes=None), ssn4=last4s_words(form_words))
     return res
 
 

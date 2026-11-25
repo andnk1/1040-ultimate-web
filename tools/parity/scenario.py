@@ -17,13 +17,19 @@ def edits(r: dict, inc: dict, ded: dict) -> list:
     """[(address, what the page sends)] - one save of each kind the Summary has (step 2 of design/conversion_plan.md).
     Chosen from the run itself, the same way in both apps, so any sample client works. {token} = the run's token."""
     rows = [x for s in inc["sections"] for x in s["rows"]]
-    with_doc = [x for x in rows if x.get("doc_cy") is not None and x.get("id")]
+    # the corrected amount goes on a line still typed on the summary (2026-11-24: a document the program read is corrected
+    # on its own screen - core/income.py where_to_correct): a crypto report's row, a Schedule C / E box result, a not-read row
+    fam = {d["file"]: d.get("family") for d in r["inv"]["docs"]}
+    open_rows = [x for x in rows if x.get("id") and not x.get("added") and not x.get("inv") and not x.get("excluded")
+                 and (x.get("status") == "none" or x.get("sche") is not None or x.get("schc") is not None
+                      or fam.get(x.get("file")) == "koinly")]
+    with_doc = sorted(open_rows, key=lambda x: x.get("doc_cy") is None)      # one with a per-document amount first
     docs = [d for d in r["inv"]["docs"] if d.get("family") != "pyreturn"]
     first_sec = inc["sections"][0]["key"]
     out = []
     if with_doc:                                       # a corrected amount (typed over), with a note
         x = with_doc[0]
-        out.append(("/edits/{token}", {x["id"]: {"cy": round(x["doc_cy"] + 100, 2), "note": "corrected in the test"}}))
+        out.append(("/edits/{token}", {x["id"]: {"cy": round((x["doc_cy"] or 0) + 100, 2), "note": "corrected in the test"}}))
         out.append(("/marks/{token}", {"inc|" + x["id"]: True, "n|inc|" + x["id"]: "ticked in the test"}))
     out.append(("/added/{token}", [{"id": "t1", "sec": first_sec, "doc": "Added in the test", "cy": 1234.5, "fit": None,
                                      "note": "+ line"}]))
@@ -142,29 +148,71 @@ def k1_pages(r: dict, k1runs, open_page, post, get, post_file, summaries) -> dic
     return out
 
 
+# ---------------------------------------------------------------- step 4: Verify return
+def verify_page(r: dict, ut_path: str, open_page, post, save_review, snapshot, master_items) -> dict:
+    """Verify return, the same in both apps, through their own addresses. The run starts without the UT print (the browser
+    app's first page has no field for it - it is picked on Verify return), then: the page opened, the UT input screens picked
+    and checked, a tick + comment on the first and the last line of the checks, the checklist (first line done with a note,
+    a line for this return only, a line for every client), Save review (Excel).
+    open_page(address) -> (status, html); post(address, body) -> the reply's data; save_review() -> (file name, bytes);
+    snapshot(r) -> the work in progress; master_items() -> the master checklist."""
+    import html as html_mod
+    r["ut_scr"], r["ut_path"], r["ut_error"] = None, "", None
+    r["form"]["utscreens"] = ""
+    out = {}
+    status, _ = open_page("/verify/{token}")
+    assert status == 200
+    out["run"] = post("/verify/{token}/run", {"path": "", "ut": ut_path})
+    status, page = open_page("/verify/{token}")
+    assert status == 200
+    keys = list(dict.fromkeys(html_mod.unescape(k) for k in re.findall(r'data-mk="(v\|[^"]+)"', page)))
+    marks = {}
+    for k in keys[:1] + keys[-1:]:
+        marks[k], marks["n|" + k] = True, "checked in the test"
+    out["marks"] = post("/marks/{token}", marks)
+    out["lines"] = len(keys)
+    cl = json.loads(re.search(r"let CL = (.*);$", page, re.M).group(1))
+    if cl:
+        cl[0].update(done=True, note="done in the test")
+    cl.append(dict(text="Line for this return (test)", done=False, stays=False, master=False, note=""))
+    cl.append(dict(text="Line for every client (test)", done=True, stays=True, master=False, note="kept"))
+    out["checklist"] = {k: v for k, v in post("/verify/{token}/checklist", cl).items() if k != "kept"}
+    out["master"] = master_items()
+    name, content = save_review()
+    out["review"] = dict(file=name, cells=_cells(content))
+    out["work"] = snapshot(r)
+    return out
+
+
 # ---------------------------------------------------------------- what is compared
 _PATHISH = re.compile(r"^(?:[A-Za-z]:[\\/]|/|\\\\).+")
 _CLOCK = re.compile(r"\d{4}-\d\d-\d\d \d\d:\d\d(:\d\d)?")      # "2026-11-17 17:19" - a time stamp
 # the by-hand list's heading "Tax year 2025 · 11/18/2026 · 169 items": the middle date is the day the list was made
 _MADE_ON = re.compile(r"^(Tax year \d{4}\W+)\d{1,2}/\d{1,2}/\d{4}(\W)")
+# the review Excel's Checklist heading "<UT print> · saved 2026-11-24 15:23": when the review was made
+_SAVED_AT = re.compile(r"( · saved )\d{4}-\d\d-\d\d \d\d:\d\d$")
 
 
 def normalize(value):
     """What both apps keep, made comparable: file paths become file names (the archive ran from C:\\..., this app from its
-    own folders); clock times are left out (when the work was saved, when the K-1s were added), and so is the day the
+    own folders); clock times are left out (when the work was saved, when the K-1s were added, when the review Excel was
+    made - its Checklist heading), and so is the day the
     by-hand list was made (its heading - otherwise the check fails on any day but the one the reference was made);
-    src_path / src_page are left out - new in the browser app (each summary row's link to the page its amount was read on,
+    lock / kept are left out - new in the browser app (2026-11-24: where a read document's row is corrected, and a correction
+    saved before that lock); src_path / src_page are left out - new in the browser app (each summary row's link to the page its amount was read on,
     2026-11-17), the archive has no such field. Everything else must be the same."""
     def walk(v):
         if isinstance(v, dict):
             return {walk(k) if isinstance(k, str) else k: walk(x) for k, x in v.items()
-                    if k not in ("saved", "src_path", "src_page") and not (isinstance(x, str) and _CLOCK.fullmatch(x))}
+                    if k not in ("saved", "src_path", "src_page", "lock", "kept") and not (isinstance(x, str) and _CLOCK.fullmatch(x))}
         if isinstance(v, list):
             return [walk(x) for x in v]
         if isinstance(v, str) and _PATHISH.match(v):
             return v.replace("\\", "/").rsplit("/", 1)[-1]
         if isinstance(v, str) and _MADE_ON.match(v):
             return _MADE_ON.sub(r"\1(date)\2", v)
+        if isinstance(v, str) and _SAVED_AT.search(v):
+            return _SAVED_AT.sub(r"\1(time)", v)
         return v
     return walk(json.loads(json.dumps(value, default=str)))
 

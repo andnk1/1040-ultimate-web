@@ -4,8 +4,8 @@ Internal return-review tool. Runs in the browser (Chrome / Edge): the client's d
 never uploaded anywhere. Contains client data: internal use only. Federal only.
 
 The desktop version (local Python server, `run.bat`) is retired (2026-11-17); its last code is the git tag `python-final` in the
-old repository `1040_ultimate`. **Status:** the first page, the work in progress and the whole Summary page work (saves, form
-tabs, UT summary, Schedule C / E, downloads); the other screens described below are converted one at a time (`design\conversion_plan.md`). The screens are described as the desktop app had them — that
+old repository `1040_ultimate`. **Status:** the first page, the work in progress, the whole Summary page (saves, form
+tabs, UT summary, Schedule C / E, downloads), the K-1 pages and Verify return (its K-1 section comes next) work; the other screens described below are converted one at a time (`design\conversion_plan.md`). The screens are described as the desktop app had them — that
 is what each converted page must match.
 
 ## Start (Windows)
@@ -83,7 +83,7 @@ Schedule D: box pair by line (1a / 1b A/G, 2 B/H, 3 C/I, 8a / 8b D/J, 9 E/K, 10 
 **File names decide nothing** (they're typed by hand) — the type, issuer and "received this year?" all come from the document's text. Two exceptions: "K-1" in the name sends a file to the K-1 reader (after the text check), and the Karbon organizer.
 
 ## Document inventory (top of screen 1)
-Columns: Verified | File name | Issuer (from the text: a known broker / payroll name on the first two pages, the "Payer's name:" line, or the W-2 employer / 1098 lender the reader found) | Type (W-2, 1099-R, 1099 Composite (DIV, B) …; a wrong tax year in red) | Program read |
+Columns: Verified | File name | Issuer (from the text: a known broker / payroll name on the first two pages, the "Payer's name:" line, or the W-2 employer / 1098 lender the reader found) | SSN (the recipient's, last 4 only — see below) | Type (W-2, 1099-R, 1099 Composite (DIV, B) …; a wrong tax year in red) | Program read |
 Amount | Added to | Note | AI. Sorted by file name, numbers in number order (2 before 10), numbered names first.
 The section starts closed (arrow), like every section with an arrow.
 - **Read** documents are listed only; their amounts are already on the income summary ("Added to" shows the lines they feed).
@@ -96,21 +96,30 @@ The section starts closed (arrow), like every section with an arrow.
 - **✓ Verified**: the row turns light mint; the ticks go into the Excel files (Documents sheet). Screen 2 doesn't flag unticked documents.
 - **AI**: the document goes to the AI (masked) — the masking list on screen 3 follows these ticks. For long documents the AI pages
   are listed in the note.
+- **SSN**: one shared search for an SSN printed as 123-45-6789, XXX-XX-6789 or ***-**-6789 (spaces around the dashes allowed; an
+  EIN 12-3456789 never matches), only in text already read: the pages the reader took its amounts from (its form / summary
+  pages), else the first 3 pages; a W-2 uses its box a. Only the last 4 are kept, shown as ***-**-6789; several in one file in
+  the order found; none = "SSN not read". With the prior-year return, the taxpayer's / spouse's
+  name follows when the last 4 are theirs (no check yet). `core/ssn.py`.
 
 
 ## Form tabs (inside the Document inventory)
-Tabs under the Document inventory header, all the same size: **Summary** (the table above), **W2**, then 1098-M, 1098-T, 1099-B,
-1099-Comp, 1099-DA, 1099-DIV, 1099-G, 1099-INT, 1099-NEC, 1099-R (alphabetical; other form types get a tab when the client has one).
-"(2)" after a name = how many forms; no number when none. Every form type the program reads has its form view (2026-11-23);
+Tabs under the Document inventory header, all the same size: **Summary** (the table above, always), then one tab per form type
+the client has a document of (2026-11-24): **W2** first, then the others alphabetically (1095-A, 1098-E, 1098-M, 1098-T, 1099-B,
+1099-Comp, 1099-DA, 1099-DIV, 1099-G, 1099-INT, 1099-K, 1099-MISC, 1099-NEC, 1099-OID, 1099-R, 1099-SA, 5498, SSA-1099). A document
+added later gets its tab when the page is drawn again. "(2)" after a name = how many forms. Every form type the program reads has its form view (2026-11-23);
 1099-G, 1099-K and 5498 have no reader yet — their tabs list the documents (the name opens the document). Under every table, the
 documents of that type with no column (not read, excluded) are listed the same way.
-- **W2**: always 6 columns + Total on the screen (W-2s 7–12 on W2_2 …); each column headed by the employee name (box e) · the
+- **Every tab**: 8 columns + Total (forms 9–16 on the next tab: W2_2 …). Under the header, two lines in every column: **SSN / Name**
+  (as on the Document inventory) and **Document** — the file name's first 16 letters (no .pdf), a link that opens the PDF at the
+  form's page; full name on hover.
+- **W2**: each column headed by the employee name (box e) · the
   employer's first word (box c); hover shows the full employer name and the EIN. A name the program didn't read shows a message and
   the file name.
 - Boxes 1–20 (box 12 / 14 / state / local lines when they have an amount; **+** adds one; state and locality on hover), a Total
   column for all the client's W-2s, a ✓ on every line. Type over a box to correct it (light pink, blue); ↺ goes back to the value read.
-  Box 1 / 2 / 12 changes go to the income summary and Verify after **Refresh the income summary**; an amount typed on the income
-  summary still wins.
+  Box 1 / 2 / 12 changes go to the income summary and Verify after **Refresh the income summary** (a W-2's amounts can't be
+  typed on the income summary - 2026-11-24).
 - Excess Social Security check per employee name (2+ W-2s).
 - **1098-M**: the same layout for the mortgage 1098s — header = borrower · first word of the lender (hover: lender, account, file);
   boxes 1–9 and one line per box 10 description. Changes go to the deduction summary after **Refresh the deduction summary**.
@@ -119,17 +128,22 @@ documents of that type with no column (not read, excluded) are listed the same w
   1095-A are not income: a change goes to their note on the Document inventory.
 - **1099-Comp, 1099-B, 1099-DA, 1099-DIV, 1099-INT, 1099-OID, 1099-MISC, 1099-NEC**: one layout — a brokerage statement is one
   column, a bank 1099-INT / IRS-layout MISC or NEC one column per form. Sections show only when a form in the tab has them:
-  1099-INT, OID, DIV, MISC, NEC boxes, 1099-B totals by term (proceeds, cost, market discount, wash sale, gain), one line per Form
-  8949 box, §1256 box 11, federal withholding. Totals only, no transactions. A term's gain with Form 8949 box lines is their sum
-  (correct the box lines).
+  1099-INT, OID, DIV, MISC, NEC boxes, 1099-B totals by term (proceeds, cost, market discount, wash sale, gain), a group per Form
+  8949 box found ("Box A — basis reported to the IRS" … D–F long-term, G–L 1099-DA, X term not known) with its five numbers,
+  §1256 box 11, federal withholding. Totals only, no transactions. A term with box groups: its five totals are the boxes' sums
+  (correct the boxes). Boxes that don't add up to the printed term totals: a note in the document's comment on the income summary.
 - A correction gives the same summary as if the program had read that value: the reader's own result is worked out again with it.
 
 ## Income and Deduction Summary — Prior Year · per document · corrected amount
 One box (always open): the income table, then the deduction table. Every other section has an arrow and starts closed.
 - **Prior Year** = from last year's return (comparison). **per document** = what came in (fixed): what the program read, the form
   tabs, the Schedule C / E box (after Calculate), the K-1 section, the amount typed on the document inventory. **corrected amount**
-  = what goes on the return: starts as a copy, yours to change (tax interpretation) — it wins. Not-read rows, lines added with +
-  and add-backs have a corrected amount only.
+  = what goes on the return: starts as a copy. Not-read rows, lines added with + and add-backs have a corrected amount only.
+- **A document the program read is corrected on its own screen, not here** (2026-11-24): its amount and Fed. w/h boxes are
+  read-only - its form tab on the Document inventory, or K-1 UT for a K-1 line; typing in them shows where to change it. Still
+  typed here: not-read documents, lines added with +, the Schedule C / E box results (or in their box), the crypto reports'
+  Schedule D / Schedule 1 rows (no screen of their own yet). Inventory lines are changed on the inventory, as before. A
+  correction saved here before (an older work in progress) still counts, and the row says to move it to the document's screen.
 - When per document changes after you corrected a line (Schedule C recalculated, a form tab fix, a new inventory amount …), the
   line says "document amount changed since your correction — re-confirm"; **Re-confirm** keeps your correction.
 - **Fed. w/h**: one column — the program's amount in grey (soft), type over it to change it (green). No withholding = blank.
@@ -149,13 +163,15 @@ One box (always open): the income table, then the deduction table. Every other s
 1 · Summary → 2 · Verify return → 3 · AI Doc Review → 4 · AI Return Review → 5 · AI Advisory (the three AI pages say what they will do — nothing behind them yet; the Mask page is no longer a step tab). Ticks (✓) sit just left of each table; buttons in the boxes are mint with green bold text, the bottom bar teal (white text). Design rules: `design/DESIGN_RULES.md`.
 
 ## 2 · Verify return
-Two ways — pick the files on this screen (the input screens can also be picked on screen 1):
+Two ways — pick the files on this screen with **Browse…** (the browser's file window; the field shows the file's name). Before
+reading, each PDF is opened in the stuck-PDF guard (90 seconds, as the desktop's).
 **With the UltraTax input screens (PDF print of the input screens)** — two parts, line by line (never totals or net amounts —
 UT calculates those):
 1. **Document verification** — every box the program read from a document, and every line typed on screen 1, against its UT
    entry: W-2 box 1 / box 2 (W2 screen, one per unit); 1099-INT / DIV / B (B&D screen and its statement page: interest,
    ordinary / qualified dividends, capital gain distributions, foreign tax, Form 8949 proceeds / cost / adjustment / gain by
-   term); Schedule E lines vs the Rent screens; Schedule C lines vs the C screen (label-based — confirm on a real print; a
+   term; Digital Assets Transactions: the gain / (loss) from the AMT Gain -Loss column and the term, because UT prints that
+   section one column off); Schedule E lines vs the Rent screens; Schedule C lines vs the C screen (label-based — confirm on a real print; a
    business with the total only is a note, not checked); 1095-A / 1098-T; inventory and added lines.
    Within ±$1 ties (UT rounds; people round either way). One document amount entered in UT in pieces, or one UT entry for
    several document lines (§1256 60% / 40%), ties when the pieces add up.
@@ -172,10 +188,14 @@ UT calculates those):
 - Form 8949 boxes: the box checked on each 8949 page vs the box of each 1099 / Koinly row (Koinly B/H etc. resolved from the return).
 - Forms filed, payers / K-1 entities and filing status: 2024 return vs 2025 return.
 - Each document amount found on the return (page numbers).
-Checklist: starts from the master list (`checklist_master.json`, created on first use: the 8 reviewer items + "Check carryovers").
+Checklist: starts from the master list. The master list is a file on the shared drive (`checklist_master.json`, one list for the
+office): **Choose the master checklist file…** once (or **Create a new one…**); Chrome remembers it and may ask once per session
+(**Allow access**). Without it the built-in list is used (the 8 reviewer items + "Check carryovers") and Stays Y isn't kept for other
+clients. Connected after the checklist was changed: only the shared list's lines are master lines (the others stay on this return).
 **+** adds a line; **Stays Y** puts it on the master list for every client, **N** keeps it on this return only (Y→N on a master
-line removes it from the master list). **Save review (Excel)…** writes the checks + the checklist (ticks and notes) to a folder you
-choose (default: the prior-year return's folder), with the UT check sheet and the Documents sheet (verified ticks).
+line removes it from the master list). **Save review (Excel)** writes the checks + the checklist (ticks and notes), with the UT check
+sheet and the Documents sheet (verified ticks), into the work-in-progress folder when Chrome lets the app write there (a folder added
+with Add a folder… or chosen with Choose a folder…); otherwise the browser downloads it.
 
 ## Deduction summary (under the income summary)
 Same layout as the income summary (editable, + to add lines). 1098-E → Student loan interest (Prior Year: Schedule 1 line 21);

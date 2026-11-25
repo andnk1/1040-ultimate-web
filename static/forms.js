@@ -78,11 +78,13 @@
         label: sec.pair[b], tip: g === '-' ? '' : (sec.kind === 'state' ? 'State: ' : 'Locality (box 20): ') + g})));
     }
     if (!keys.size) return sec.hide_none ? [] : [{k: sec.dyn + '*', box: sec.box, t: 'none', label: sec.none || 'None'}];
-    if (sec.kind === 'b8949') {                                          // b8949:st:A -> Short-term, Form 8949 box A
+    if (sec.kind === 'b8949') {                // b8949:st:A:proceeds ... -> a group per box: its name, then its five numbers
       const ord = {st: 0, lt: 1, und: 2};
-      return [...keys].sort((a, b) => { const [, ta, xa] = a.split(':'), [, tb, xb] = b.split(':'); return (ord[ta] - ord[tb]) || (xa < xb ? -1 : 1); })
-        .map(k => { const [, t, bx] = k.split(':');
-          return {k, box: bx, t: sec.t, label: `${TERM[t] || t} — Form 8949 box ${bx}, gain or (loss)`}; });
+      const boxes = [...new Set([...keys].map(k => k.split(':').slice(1, 3).join(':')))]
+        .sort((a, b) => { const [ta, xa] = a.split(':'), [tb, xb] = b.split(':'); return (ord[ta] - ord[tb]) || (xa < xb ? -1 : 1); });
+      return boxes.flatMap(tb => { const [t, bx] = tb.split(':');
+        return [{t: 'head', label: `Box ${bx} — ${FV.boxnames[bx] || 'Form 8949 box'} (${(TERM[t] || t).toLowerCase()})`}]
+          .concat(Object.keys(FV.blabels).map(f => ({k: `b8949:${tb}:${f}`, box: bx, t: sec.t, label: FV.blabels[f]}))); });
     }
     return [...keys].sort().map(k => {
       const c = k.slice(sec.dyn.length);
@@ -90,7 +92,7 @@
               label: sec.kind === 'code12' ? `<b>${esc(c)}</b> ${esc(FV.codes[c] || 'Unknown code — check the document')}` : c};
     });
   }
-  const lineKeys = t => defOf(t).sections.flatMap(sec => rowsOf(sec, colsOf(t)).map(r => r.k));
+  const lineKeys = t => defOf(t).sections.flatMap(sec => rowsOf(sec, colsOf(t)).filter(r => r.t !== 'head').map(r => r.k));
 
   // ---- tabs
   function progress(t) { const keys = lineKeys(t), done = keys.filter(k => MARKS[mk(t, k)]).length; return {done, n: keys.length}; }
@@ -106,12 +108,12 @@
 
   // ---- the table
   const boxKeys = (c, pre) => [...new Set(Object.keys(c.parsed).concat(Object.keys(ed(c)[c.id] || {})))].filter(k => k.startsWith(pre));
-  const locked = (c, r) => !!r.sumof && boxKeys(c, r.sumof).length > 0;
-  const val = (c, r) => locked(c, r) ? boxKeys(c, r.sumof).reduce((s, k) => s + n0(eff(c, k)), 0) : eff(c, r.k);
+  const locked = (c, r) => !!r.sumof && boxKeys(c, r.sumof[0]).length > 0;
+  const val = (c, r) => locked(c, r) ? boxKeys(c, r.sumof[0]).filter(k => k.endsWith(':' + r.sumof[1])).reduce((s, k) => s + n0(eff(c, k)), 0) : eff(c, r.k);
   function cell(c, r) {
     if (!c || r.t === 'none') return '<td class="fvc"></td>';
     if (locked(c, r))
-      return `<td class="fvc fvlock" title="The sum of the Form 8949 box rows below — correct those">${whole(val(c, r))}</td>`;
+      return `<td class="fvc fvlock" data-col="${esc(c.id)}" data-k="${esc(r.k)}" title="The sum of this term's Form 8949 boxes below — correct those">${whole(val(c, r))}</td>`;
     const v = eff(c, r.k), p = parsedOf(c, r.k), ed = edited(c, r.k);
     const pv = r.t === 'check' ? (p === null ? 'not read' : p ? 'checked' : 'not checked') : r.t === 'money' ? cents(p) : (p || '(blank)');
     const inp = r.t === 'check'
@@ -146,12 +148,20 @@
       h += `<th class="fvdoc" data-col="${esc(c ? c.id : '')}" title="${esc(x.title)}"><span class="fvname">${esc(x.name)}</span>` +
            x.errs.map(m => `<span class="fverr">${esc(m)}</span>`).join('') + '</th>'; });
     h += `<th class="fvtot">Total${all.length > t.cols.length ? `<span class="fvsub">all ${all.length} ${esc(def.label)}s</span>` : ''}</th></tr></thead><tbody>`;
+    h += `<tr class="fvmeta"><td class="fvs1"></td><td class="fvs2">SSN / Name</td>` + cols.map(c => `<td class="fvc">${!c ? '' :
+      c.ssn.length ? c.ssn.map(esc).join('<br>') : '<span class="fvdim">SSN not read</span>'}</td>`).join('') + '<td class="fvtot"></td></tr>';
+    h += `<tr class="fvmeta"><td class="fvs1"></td><td class="fvs2">Document</td>` + cols.map(c => `<td class="fvc">${c ? docLink(c) : ''}</td>`).join('') +
+         '<td class="fvtot"></td></tr>';
     def.sections.forEach((sec, si) => {
       const rows = rowsOf(sec, colsOf(t));
       if (!rows.length) return;                                        // a section no form in the tab has (opt)
       if (sec.title && sec.head !== false)
         h += `<tr class="fvsec"><td class="fvs1"></td><td class="fvs2">${esc(sec.title)}</td><td colspan="${cols.length + 1}"></td></tr>`;
       rows.forEach((r, i) => {
+        if (r.t === 'head') {                                          // a Form 8949 box's name over its five numbers
+          h += `<tr class="fvboxhead"><td class="fvs1"></td><td class="fvs2">${esc(r.label)}</td><td colspan="${cols.length + 1}"></td></tr>`;
+          return;
+        }
         const ok = !!MARKS[mk(t, r.k)], add = sec.dyn && i === rows.length - 1;
         h += `<tr class="mk${ok ? ' done' : ''}${r.t === 'none' ? ' fvnone' : ''}" data-mk="${esc(mk(t, r.k))}">
           <td class="fvs1"><span class="fvck"><input type="checkbox" class="fvok" data-mk="${esc(mk(t, r.k))}" ${ok ? 'checked' : ''} title="Line verified"></span>${esc(r.box)}</td><td class="fvs2"${r.tip ? ` title="${esc(r.tip)}"` : ''}>${r.html ? r.label : esc(r.label)}` +
@@ -164,6 +174,14 @@
       <p class="note" id="fvStatus"></p>` + othersHtml(t);
     refresh();
   }
+  // the column's document: its name (first 16 letters, no .pdf), opening the PDF at the form's page like the Income Summary
+  function docLink(c) {
+    const stem = c.file.replace(/\.[^.]+$/, ''), short = stem.length > 16 ? stem.slice(0, 16) + '…' : stem;
+    if (!/\.pdf$/i.test(c.path)) return `<span class="fvdocname" title="${esc(c.file)}">${esc(short)}</span>`;
+    return `<a class="doclink fvdocname" href="/open?path=${encodeURIComponent(c.path)}${c.page ? '&page=' + c.page : ''}"
+              title="${esc(c.file)}${c.page ? ' — page ' + c.page : ''}">${esc(short)}</a>`;
+  }
+
   // the documents of this type with no column (not read, excluded, no reader): the name opens the document
   function othersHtml(t) {
     if (!t.others || !t.others.length) return '';
@@ -178,6 +196,7 @@
     const def = defOf(t), all = allOf(t.form), rows = {};
     def.sections.forEach(sec => rowsOf(sec, colsOf(t)).forEach(r => { rows[r.k] = r; }));
     G.querySelectorAll('td.fvtot[data-k]').forEach(td => { if (rows[td.dataset.k]) td.textContent = total(rows[td.dataset.k], t); });
+    G.querySelectorAll('td.fvlock').forEach(td => { const c = byId[td.dataset.col], r = rows[td.dataset.k]; if (c && r) td.textContent = whole(val(c, r)); });
     G.querySelectorAll('th.fvdoc').forEach(th => { const x = head(byId[th.dataset.col] || null); th.title = x.title;
       th.innerHTML = `<span class="fvname">${esc(x.name)}</span>` + x.errs.map(m => `<span class="fverr">${esc(m)}</span>`).join(''); });
     const g = progress(t);
@@ -186,7 +205,7 @@
     const a = document.getElementById('okAll'); if (a) a.checked = g.n > 0 && g.done === g.n;
     const out = [];
     if (changed.has(t.form))
-      out.push(`${esc(def.label)} amounts changed — the ${def.summary} shows them after a refresh. <button type="button" class="light small" id="fvRefresh">Refresh the ${def.summary}</button>`);
+      out.push(`${esc(def.label === '1099' ? t.label.split('_')[0] : def.label)} amounts changed — the ${def.summary} shows them after a refresh. <button type="button" class="light small" id="fvRefresh">Refresh the ${def.summary}</button>`);
     // excess Social Security: W-2s grouped by the employee name read from box e
     const groups = {}, noname = [];
     (t.form === 'w2' ? all : []).forEach(c => { const n = (eff(c, 'ee') || '').trim().toLowerCase().replace(/\s+/g, ' ');
